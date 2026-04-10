@@ -1,3 +1,3 @@
-module github.com/kloakd/kloakd-go
+module github.com/kloakd-dev/kloakd-go
 
 go 1.26.2

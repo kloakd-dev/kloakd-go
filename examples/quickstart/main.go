@@ -12,7 +12,7 @@ import (
 	"os"
 	"time"
 
-	kloakd "github.com/kloakd/kloakd-go"
+	kloakd "github.com/kloakd-dev/kloakd-go"
 )
 
 func main() {
