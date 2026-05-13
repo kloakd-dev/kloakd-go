@@ -2,6 +2,21 @@
 
 All notable changes to the KLOAKD Go SDK are documented here.
 
+## [0.2.0] — 2026-05-13
+
+### Added
+- Full API coverage for all 117 kernel module operations across 7 modules
+- **Transport**: `put()` and `patch()` methods for full CRUD HTTP support
+- **EvadrNamespace**: `Scan`, `GetJob`, `GetJobEvents`, `ListVendors`, `ListProfiles`, `ListProxies`, `DeleteProxy`
+- **FetchyrNamespace**: `StoreCredentials`, `ListCredentials`, `DeleteCredentials`, `ListSessions`, `TerminateSession`, `FillForm`, `ListMFAChallenges`, `GetMFAChallenge`, `GetMFAStatistics`, `ListWorkflows`, `GetWorkflow`, `UpdateWorkflow`, `DeleteWorkflow`, `GetWorkflowStatistics`, `CreateMultiSiteWorkflow`, `CreateDedupSession`, `ListDedupSessions`, `GetDedupSession`, `GetDedupSessionStatistics`, `GetDedupDomainStatistics`
+- **KolektrNamespace**: `GetAPIData`, `GetAPIDataPaginated`, `ExtractAllAPIData`, `ListContent`, `GetContent`, `DeleteContent`, `ListJobs`, `CreateJob`, `GetJob`, `GetJobStatus`, `GetJobProgress`, `GetJobProgressEvents`, `GetJobProgressLatest`, `GetJobProgressSummary`, `GetPipelineEvents`, `GetPipelineStream`, `ListProgressPhases`, `GetProgressPhase`, `GetProgressPhaseSteps`, `GetProgressSummary`, `ListScrapers`, `CreateScraper`, `GetScraper`, `UpdateScraper`, `DeleteScraper`
+- **NexusNamespace**: `Reason`, `RecommendAnalyze`, `ListRecommendationApplications`, `GetCacheStatistics`, `CleanupCache`, `InvalidateCache`, `GetHooksStatus`, `EnableHook`, `DisableHook`, `CreatePreference`, `GetPreferences`, `UpdatePreference`, `DeletePreference`, `GetRecommendationStatistics`
+- **SkanyrNamespace**: `GetDiscovery`, `GetDiscoveryEvents`, `AnalyzeBundle`, `DiscoverPageLive`, `DetectedAPIs`, `Hierarchy`, `ExpandNode`, `ReaderView`, `Retry`, `Health`, `ListSessions`, `SaveSession`, `GetSession`, `DeleteSession`, `EndSession`, `UpdateSessionJob`
+- **WebgrphNamespace**: `GetCrawlStatus`, `GetCrawlEvents`, `GetCrawlPages`, `GetDashboardSummary`, `GetErrorSummary`, `GetJobTrends`, `GetDiscoveryPatterns`, `GetEfficiencyMetrics`, `GetSiteMappingTrends`, `GetUserBehaviorInsights`
+
+### Changed
+- `CheckDuplicates` endpoint corrected to `fetchyr/deduplication/check`
+
 ## [0.1.0] — 2026-04-09
 
 ### Added

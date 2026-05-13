@@ -129,6 +129,48 @@ func (e *EvadrNamespace) Analyze(ctx context.Context, targetURL string, opts *An
 	return parseAnalyzeResult(raw), nil
 }
 
+// Scan scans a URL response for anti-bot vendor signatures.
+func (e *EvadrNamespace) Scan(ctx context.Context, targetURL string, opts *AnalyzeOptions) (map[string]interface{}, error) {
+	body := map[string]interface{}{"url": targetURL}
+	if opts != nil {
+		if opts.StatusCode != 0 {
+			body["status_code"] = opts.StatusCode
+		}
+		if len(opts.Headers) > 0 {
+			body["headers"] = opts.Headers
+		}
+		if opts.BodySnippet != "" {
+			body["body_snippet"] = opts.BodySnippet
+		}
+	}
+	return e.t.post(ctx, "evadr/scan", body)
+}
+
+// GetJob polls an async fetch job by ID.
+func (e *EvadrNamespace) GetJob(ctx context.Context, jobID string) (map[string]interface{}, error) {
+	return e.t.get(ctx, fmt.Sprintf("evadr/jobs/%s", jobID), nil)
+}
+
+// GetJobEvents retrieves SSE events for an async fetch job.
+func (e *EvadrNamespace) GetJobEvents(ctx context.Context, jobID string) (map[string]interface{}, error) {
+	return e.t.get(ctx, fmt.Sprintf("evadr/jobs/%s/events", jobID), nil)
+}
+
+// ListVendors lists all known anti-bot detection vendors.
+func (e *EvadrNamespace) ListVendors(ctx context.Context) (map[string]interface{}, error) {
+	return e.t.get(ctx, "evadr/vendors", nil)
+}
+
+// ListProfiles lists available evasion profiles.
+func (e *EvadrNamespace) ListProfiles(ctx context.Context) (map[string]interface{}, error) {
+	return e.t.get(ctx, "evadr/profiles", nil)
+}
+
+// ListProxies lists stored proxy configurations (names only, no secrets).
+func (e *EvadrNamespace) ListProxies(ctx context.Context) (map[string]interface{}, error) {
+	return e.t.get(ctx, "evadr/proxies", nil)
+}
+
 // StoreProxy registers a named proxy in the organization's proxy pool.
 func (e *EvadrNamespace) StoreProxy(ctx context.Context, name, proxyURL string) error {
 	_, err := e.t.post(ctx, "evadr/proxies", map[string]interface{}{
@@ -136,6 +178,11 @@ func (e *EvadrNamespace) StoreProxy(ctx context.Context, name, proxyURL string) 
 		"proxy_url": proxyURL,
 	})
 	return err
+}
+
+// DeleteProxy deletes a stored proxy configuration by name.
+func (e *EvadrNamespace) DeleteProxy(ctx context.Context, name string) error {
+	return e.t.delete(ctx, fmt.Sprintf("evadr/proxies/%s", name))
 }
 
 // ─── parsers ─────────────────────────────────────────────────────────────────

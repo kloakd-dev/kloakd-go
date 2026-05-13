@@ -153,6 +153,90 @@ func (f *FetchyrNamespace) SubmitMFA(ctx context.Context, challengeID, code stri
 	return parseMfaResult(raw), nil
 }
 
+// StoreCredentials stores login credentials securely.
+func (f *FetchyrNamespace) StoreCredentials(ctx context.Context, name string, credentials map[string]interface{}) (map[string]interface{}, error) {
+	credentials["name"] = name
+	return f.t.post(ctx, "fetchyr/account/credentials", credentials)
+}
+
+// ListCredentials lists stored credential names (no secret values).
+func (f *FetchyrNamespace) ListCredentials(ctx context.Context) (map[string]interface{}, error) {
+	return f.t.get(ctx, "fetchyr/account/credentials", nil)
+}
+
+// DeleteCredentials deletes stored credentials by name.
+func (f *FetchyrNamespace) DeleteCredentials(ctx context.Context, name string) error {
+	return f.t.delete(ctx, fmt.Sprintf("fetchyr/account/credentials/%s", name))
+}
+
+// ListSessions lists active browser sessions.
+func (f *FetchyrNamespace) ListSessions(ctx context.Context) (map[string]interface{}, error) {
+	return f.t.get(ctx, "fetchyr/sessions", nil)
+}
+
+// TerminateSession terminates a session and releases Chrome slot.
+func (f *FetchyrNamespace) TerminateSession(ctx context.Context, artifactID string) error {
+	return f.t.delete(ctx, fmt.Sprintf("fetchyr/sessions/%s", artifactID))
+}
+
+// FillForm fills and optionally submits a form on a page.
+func (f *FetchyrNamespace) FillForm(ctx context.Context, targetURL string, formData map[string]string, sessionArtifactID string, submit bool) (map[string]interface{}, error) {
+	body := map[string]interface{}{"url": targetURL, "form_data": formData, "submit": submit}
+	if sessionArtifactID != "" {
+		body["session_artifact_id"] = sessionArtifactID
+	}
+	return f.t.post(ctx, "fetchyr/form/fill", body)
+}
+
+// ListMFAChallenges lists pending MFA challenges.
+func (f *FetchyrNamespace) ListMFAChallenges(ctx context.Context) (map[string]interface{}, error) {
+	return f.t.get(ctx, "fetchyr/mfa-queue", nil)
+}
+
+// GetMFAChallenge gets a specific MFA challenge by ID.
+func (f *FetchyrNamespace) GetMFAChallenge(ctx context.Context, challengeID string) (map[string]interface{}, error) {
+	return f.t.get(ctx, fmt.Sprintf("fetchyr/mfa/challenges/%s", challengeID), nil)
+}
+
+// GetMFAStatistics gets MFA statistics for a domain.
+func (f *FetchyrNamespace) GetMFAStatistics(ctx context.Context, domain string) (map[string]interface{}, error) {
+	return f.t.get(ctx, fmt.Sprintf("fetchyr/mfa/statistics/%s", domain), nil)
+}
+
+// ListWorkflows lists all RPA workflow definitions.
+func (f *FetchyrNamespace) ListWorkflows(ctx context.Context) (map[string]interface{}, error) {
+	return f.t.get(ctx, "fetchyr/workflows", nil)
+}
+
+// GetWorkflow gets a workflow definition by ID.
+func (f *FetchyrNamespace) GetWorkflow(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+	return f.t.get(ctx, fmt.Sprintf("fetchyr/workflows/%s", workflowID), nil)
+}
+
+// UpdateWorkflow updates an existing workflow.
+func (f *FetchyrNamespace) UpdateWorkflow(ctx context.Context, workflowID string, updates map[string]interface{}) (map[string]interface{}, error) {
+	return f.t.patch(ctx, fmt.Sprintf("fetchyr/workflows/%s", workflowID), updates)
+}
+
+// DeleteWorkflow deletes a workflow definition.
+func (f *FetchyrNamespace) DeleteWorkflow(ctx context.Context, workflowID string) error {
+	return f.t.delete(ctx, fmt.Sprintf("fetchyr/workflows/%s", workflowID))
+}
+
+// GetWorkflowStatistics gets execution statistics for a workflow.
+func (f *FetchyrNamespace) GetWorkflowStatistics(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+	return f.t.get(ctx, fmt.Sprintf("fetchyr/workflows/%s/statistics", workflowID), nil)
+}
+
+// CreateMultiSiteWorkflow creates a multi-site orchestration workflow.
+func (f *FetchyrNamespace) CreateMultiSiteWorkflow(ctx context.Context, sites []map[string]interface{}, name string) (map[string]interface{}, error) {
+	body := map[string]interface{}{"sites": sites}
+	if name != "" {
+		body["name"] = name
+	}
+	return f.t.post(ctx, "fetchyr/multi-site-workflows", body)
+}
+
 // CheckDuplicates deduplicates a list of records, optionally scoped to a domain.
 func (f *FetchyrNamespace) CheckDuplicates(ctx context.Context, records []map[string]interface{}, domain string) (*DeduplicationResult, error) {
 	body := map[string]interface{}{"records": records}
@@ -160,11 +244,36 @@ func (f *FetchyrNamespace) CheckDuplicates(ctx context.Context, records []map[st
 		body["domain"] = domain
 	}
 
-	raw, err := f.t.post(ctx, "fetchyr/duplicates/check", body)
+	raw, err := f.t.post(ctx, "fetchyr/deduplication/check", body)
 	if err != nil {
 		return nil, err
 	}
 	return parseDeduplicationResult(raw), nil
+}
+
+// CreateDedupSession creates a deduplication session.
+func (f *FetchyrNamespace) CreateDedupSession(ctx context.Context, config map[string]interface{}) (map[string]interface{}, error) {
+	return f.t.post(ctx, "fetchyr/deduplication/sessions", config)
+}
+
+// ListDedupSessions lists active deduplication sessions.
+func (f *FetchyrNamespace) ListDedupSessions(ctx context.Context) (map[string]interface{}, error) {
+	return f.t.get(ctx, "fetchyr/deduplication/sessions/active", nil)
+}
+
+// GetDedupSession gets a deduplication session by ID.
+func (f *FetchyrNamespace) GetDedupSession(ctx context.Context, sessionID string) (map[string]interface{}, error) {
+	return f.t.get(ctx, fmt.Sprintf("fetchyr/deduplication/sessions/%s", sessionID), nil)
+}
+
+// GetDedupSessionStatistics gets statistics for a deduplication session.
+func (f *FetchyrNamespace) GetDedupSessionStatistics(ctx context.Context, sessionID string) (map[string]interface{}, error) {
+	return f.t.get(ctx, fmt.Sprintf("fetchyr/deduplication/sessions/%s/statistics", sessionID), nil)
+}
+
+// GetDedupDomainStatistics gets deduplication statistics for a domain.
+func (f *FetchyrNamespace) GetDedupDomainStatistics(ctx context.Context, domain string) (map[string]interface{}, error) {
+	return f.t.get(ctx, fmt.Sprintf("fetchyr/deduplication/statistics/%s", domain), nil)
 }
 
 // ─── parsers ─────────────────────────────────────────────────────────────────

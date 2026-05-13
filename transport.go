@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	sdkVersion     = "0.1.0"
+	sdkVersion     = "0.2.0"
 	defaultBaseURL = "https://api.kloakd.dev"
 	defaultTimeout = 30 * time.Second
 	defaultRetries = 3
@@ -151,6 +151,14 @@ func (t *transport) get(ctx context.Context, path string, params map[string]stri
 
 func (t *transport) post(ctx context.Context, path string, body map[string]interface{}) (map[string]interface{}, error) {
 	return t.request(ctx, http.MethodPost, path, body, nil)
+}
+
+func (t *transport) put(ctx context.Context, path string, body map[string]interface{}) (map[string]interface{}, error) {
+	return t.request(ctx, http.MethodPut, path, body, nil)
+}
+
+func (t *transport) patch(ctx context.Context, path string, body map[string]interface{}) (map[string]interface{}, error) {
+	return t.request(ctx, http.MethodPatch, path, body, nil)
 }
 
 func (t *transport) delete(ctx context.Context, path string) error {

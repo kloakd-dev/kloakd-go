@@ -109,6 +109,90 @@ func (s *SkanyrNamespace) DiscoverStream(ctx context.Context, targetURL string, 
 	return ch, nil
 }
 
+// GetDiscovery polls discovery status by ID.
+func (s *SkanyrNamespace) GetDiscovery(ctx context.Context, discoveryID string) (map[string]interface{}, error) {
+	return s.t.get(ctx, fmt.Sprintf("skanyr/discover/%s", discoveryID), nil)
+}
+
+// GetDiscoveryEvents gets SSE stream events for a discovery run.
+func (s *SkanyrNamespace) GetDiscoveryEvents(ctx context.Context, discoveryID string) (map[string]interface{}, error) {
+	return s.t.get(ctx, fmt.Sprintf("skanyr/discover/%s/events", discoveryID), nil)
+}
+
+// AnalyzeBundle analyses a JS bundle URL for embedded API patterns.
+func (s *SkanyrNamespace) AnalyzeBundle(ctx context.Context, targetURL string) (map[string]interface{}, error) {
+	return s.t.post(ctx, "skanyr/analyze-bundle", map[string]interface{}{"url": targetURL})
+}
+
+// DiscoverPageLive runs all detectors against a single page.
+func (s *SkanyrNamespace) DiscoverPageLive(ctx context.Context, targetURL string) (map[string]interface{}, error) {
+	return s.t.post(ctx, "skanyr/discover-page/live", map[string]interface{}{"url": targetURL})
+}
+
+// DetectedAPIs lists all detected APIs from a prior discovery run.
+func (s *SkanyrNamespace) DetectedAPIs(ctx context.Context, pageURL string) (map[string]interface{}, error) {
+	return s.t.get(ctx, "skanyr/detected-apis", map[string]string{"page_url": pageURL})
+}
+
+// Hierarchy discovers site hierarchy from a URL.
+func (s *SkanyrNamespace) Hierarchy(ctx context.Context, targetURL string) (map[string]interface{}, error) {
+	return s.t.post(ctx, "skanyr/hierarchy", map[string]interface{}{"url": targetURL})
+}
+
+// ExpandNode expands a hierarchy node to discover child pages.
+func (s *SkanyrNamespace) ExpandNode(ctx context.Context, nodeID string) (map[string]interface{}, error) {
+	return s.t.post(ctx, "skanyr/expand-node", map[string]interface{}{"node_id": nodeID})
+}
+
+// ReaderView extracts a clean reader view of a page.
+func (s *SkanyrNamespace) ReaderView(ctx context.Context, targetURL string) (map[string]interface{}, error) {
+	return s.t.post(ctx, "skanyr/reader-view", map[string]interface{}{"url": targetURL})
+}
+
+// Retry retries a discovery run with optional overrides.
+func (s *SkanyrNamespace) Retry(ctx context.Context, discoveryID string, overrides map[string]interface{}) (map[string]interface{}, error) {
+	body := map[string]interface{}{"discovery_id": discoveryID}
+	for k, v := range overrides {
+		body[k] = v
+	}
+	return s.t.post(ctx, "skanyr/retry", body)
+}
+
+// Health performs a health check for Skanyr discovery service.
+func (s *SkanyrNamespace) Health(ctx context.Context) (map[string]interface{}, error) {
+	return s.t.get(ctx, "skanyr/health", nil)
+}
+
+// ListSessions lists discovery sessions.
+func (s *SkanyrNamespace) ListSessions(ctx context.Context) (map[string]interface{}, error) {
+	return s.t.get(ctx, "skanyr/sessions", nil)
+}
+
+// SaveSession saves a discovery session.
+func (s *SkanyrNamespace) SaveSession(ctx context.Context, config map[string]interface{}) (map[string]interface{}, error) {
+	return s.t.post(ctx, "skanyr/sessions", config)
+}
+
+// GetSession gets a discovery session by ID.
+func (s *SkanyrNamespace) GetSession(ctx context.Context, sessionID string) (map[string]interface{}, error) {
+	return s.t.get(ctx, fmt.Sprintf("skanyr/sessions/%s", sessionID), nil)
+}
+
+// DeleteSession deletes a discovery session.
+func (s *SkanyrNamespace) DeleteSession(ctx context.Context, sessionID string) error {
+	return s.t.delete(ctx, fmt.Sprintf("skanyr/sessions/%s", sessionID))
+}
+
+// EndSession ends an active discovery session.
+func (s *SkanyrNamespace) EndSession(ctx context.Context, sessionID string) (map[string]interface{}, error) {
+	return s.t.post(ctx, fmt.Sprintf("skanyr/sessions/%s/end", sessionID), map[string]interface{}{})
+}
+
+// UpdateSessionJob updates the job ID associated with a session.
+func (s *SkanyrNamespace) UpdateSessionJob(ctx context.Context, sessionID, jobID string) (map[string]interface{}, error) {
+	return s.t.patch(ctx, fmt.Sprintf("skanyr/sessions/%s/job", sessionID), map[string]interface{}{"job_id": jobID})
+}
+
 // GetApiMap retrieves a stored API map artifact by ID.
 func (s *SkanyrNamespace) GetApiMap(ctx context.Context, artifactID string) (map[string]interface{}, error) {
 	return s.t.get(ctx, fmt.Sprintf("skanyr/api-map/%s", artifactID), nil)

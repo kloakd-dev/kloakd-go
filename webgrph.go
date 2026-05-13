@@ -117,6 +117,21 @@ func (w *WebgrphNamespace) CrawlStream(ctx context.Context, targetURL string, op
 	return ch, nil
 }
 
+// GetCrawlStatus polls crawl status and stats.
+func (w *WebgrphNamespace) GetCrawlStatus(ctx context.Context, crawlID string) (map[string]interface{}, error) {
+	return w.t.get(ctx, fmt.Sprintf("webgrph/crawl/%s", crawlID), nil)
+}
+
+// GetCrawlEvents gets SSE events for a crawl.
+func (w *WebgrphNamespace) GetCrawlEvents(ctx context.Context, crawlID string) (map[string]interface{}, error) {
+	return w.t.get(ctx, fmt.Sprintf("webgrph/crawl/%s/events", crawlID), nil)
+}
+
+// GetCrawlPages gets paginated list of discovered pages.
+func (w *WebgrphNamespace) GetCrawlPages(ctx context.Context, crawlID string) (map[string]interface{}, error) {
+	return w.t.get(ctx, fmt.Sprintf("webgrph/crawl/%s/pages", crawlID), nil)
+}
+
 // GetHierarchy retrieves a stored site hierarchy artifact by ID.
 func (w *WebgrphNamespace) GetHierarchy(ctx context.Context, artifactID string) (map[string]interface{}, error) {
 	return w.t.get(ctx, fmt.Sprintf("webgrph/hierarchy/%s", artifactID), nil)
@@ -125,6 +140,41 @@ func (w *WebgrphNamespace) GetHierarchy(ctx context.Context, artifactID string) 
 // GetJob retrieves the status of a crawl job by ID.
 func (w *WebgrphNamespace) GetJob(ctx context.Context, jobID string) (map[string]interface{}, error) {
 	return w.t.get(ctx, fmt.Sprintf("webgrph/jobs/%s", jobID), nil)
+}
+
+// GetDashboardSummary gets analytics dashboard summary.
+func (w *WebgrphNamespace) GetDashboardSummary(ctx context.Context) (map[string]interface{}, error) {
+	return w.t.get(ctx, "webgrph/analytics/dashboard/summary", nil)
+}
+
+// GetErrorSummary gets error summary analytics.
+func (w *WebgrphNamespace) GetErrorSummary(ctx context.Context) (map[string]interface{}, error) {
+	return w.t.get(ctx, "webgrph/analytics/error-summary", nil)
+}
+
+// GetJobTrends gets job trends analytics.
+func (w *WebgrphNamespace) GetJobTrends(ctx context.Context) (map[string]interface{}, error) {
+	return w.t.get(ctx, "webgrph/analytics/job-trends", nil)
+}
+
+// GetDiscoveryPatterns gets content discovery pattern analytics.
+func (w *WebgrphNamespace) GetDiscoveryPatterns(ctx context.Context) (map[string]interface{}, error) {
+	return w.t.get(ctx, "webgrph/analytics/content/discovery-patterns", nil)
+}
+
+// GetEfficiencyMetrics gets scraping efficiency metrics.
+func (w *WebgrphNamespace) GetEfficiencyMetrics(ctx context.Context) (map[string]interface{}, error) {
+	return w.t.get(ctx, "webgrph/analytics/scraping/efficiency-metrics", nil)
+}
+
+// GetSiteMappingTrends gets site mapping trends.
+func (w *WebgrphNamespace) GetSiteMappingTrends(ctx context.Context) (map[string]interface{}, error) {
+	return w.t.get(ctx, "webgrph/analytics/site-maps/trends", nil)
+}
+
+// GetUserBehaviorInsights gets user behavior insights.
+func (w *WebgrphNamespace) GetUserBehaviorInsights(ctx context.Context) (map[string]interface{}, error) {
+	return w.t.get(ctx, "webgrph/analytics/users/behavior-insights", nil)
 }
 
 // ─── parsers ─────────────────────────────────────────────────────────────────
