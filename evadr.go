@@ -196,7 +196,7 @@ func parseFetchResult(raw map[string]interface{}) *FetchResult {
 		AntiBotBypassed: boolField(raw, "anti_bot_bypassed"),
 		HTML:            optStrField(raw, "html"),
 		VendorDetected:  optStrField(raw, "vendor_detected"),
-		ArtifactID:      optStrField(raw, "artifact_id"),
+		ArtifactID:      nestedArtifactID(raw),
 		Error:           optStrField(raw, "error"),
 	}
 	return r
@@ -242,6 +242,21 @@ func parseAnalyzeResult(raw map[string]interface{}) *AnalyzeResult {
 }
 
 // ─── field helpers (shared across all namespace files via same package) ───────
+
+// nestedArtifactID extracts artifact_id from the nested "artifact" object
+// returned by the API, falling back to a top-level "artifact_id" field.
+func nestedArtifactID(raw map[string]interface{}) *string {
+	if artifact, ok := raw["artifact"]; ok {
+		if m, ok := artifact.(map[string]interface{}); ok {
+			if id, ok := m["artifact_id"]; ok && id != nil {
+				if s, ok := id.(string); ok {
+					return &s
+				}
+			}
+		}
+	}
+	return optStrField(raw, "artifact_id")
+}
 
 func strField(m map[string]interface{}, key string) string {
 	if v, ok := m[key]; ok {

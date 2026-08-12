@@ -199,7 +199,7 @@ func parseCrawlResult(raw map[string]interface{}) *CrawlResult {
 		Pages:           pages,
 		HasMore:         boolField(raw, "has_more"),
 		Total:           intField(raw, "total"),
-		ArtifactID:      optStrField(raw, "artifact_id"),
+		ArtifactID:      nestedArtifactID(raw),
 		Error:           optStrField(raw, "error"),
 	}
 }

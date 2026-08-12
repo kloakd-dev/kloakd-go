@@ -242,7 +242,7 @@ func parseExtractionResult(raw map[string]interface{}) *ExtractionResult {
 		PagesScraped: intField(raw, "pages_scraped"),
 		HasMore:      boolField(raw, "has_more"),
 		Total:        intField(raw, "total"),
-		ArtifactID:   optStrField(raw, "artifact_id"),
+		ArtifactID:   nestedArtifactID(raw),
 		JobID:        optStrField(raw, "job_id"),
 		Error:        optStrField(raw, "error"),
 	}
