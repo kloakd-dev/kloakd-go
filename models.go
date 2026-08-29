@@ -272,3 +272,55 @@ type ExtractionResult struct {
 	JobID        *string
 	Error        *string
 }
+
+// ─── High-level orchestrator ─────────────────────────────────────────────────
+
+// CrawlPage represents a single page result from the high-level Crawl() orchestrator.
+type CrawlPage struct {
+	Success       bool
+	URL           string
+	StatusCode    int
+	TierUsed      int
+	HTML          *string
+	StructuredData map[string]interface{}
+	ArtifactID    *string
+	Error         *string
+}
+
+// Ok returns true if the page was fetched successfully.
+func (p CrawlPage) Ok() bool {
+	return p.Success && p.Error == nil
+}
+
+// SiteCrawlResult is returned by Client.Crawl.
+type SiteCrawlResult struct {
+	Success               bool
+	URL                   string
+	TotalPagesDiscovered  int
+	PagesFetched          int
+	PagesFailed           int
+	Pages                 []CrawlPage
+	CrawlArtifactID       *string
+	Error                 *string
+}
+
+// CrawlProgressEvent is yielded by Client.CrawlStream.
+type CrawlProgressEvent struct {
+	Type    string
+	URL     *string
+	Page    *int
+	Total   *int
+	Success *bool
+	Error   *string
+	Metadata map[string]interface{}
+}
+
+// CrawlOrchestratorOptions configures the high-level Crawl() and CrawlStream() methods.
+type CrawlOrchestratorOptions struct {
+	MaxDepth             int
+	MaxPages             int
+	ExtractSchema        map[string]string
+	OutputFormat         string
+	IncludeExternalLinks bool
+	SessionArtifactID    string
+}
