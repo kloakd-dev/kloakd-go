@@ -72,13 +72,13 @@ func (c *Client) Crawl(ctx context.Context, targetURL string, opts *CrawlOrchest
 			for k, v := range opts.ExtractSchema {
 				schema[k] = v
 			}
-			pageOpts := &PageOptions{
-				Schema: schema,
+			pageOpts := &ExtractOptions{
+				SchemaSpec: schema,
 			}
 			if fetchResult.ArtifactID != nil {
 				pageOpts.FetchArtifactID = *fetchResult.ArtifactID
 			}
-			extraction, extErr := c.Kolektr.Page(ctx, node.URL, pageOpts)
+			extraction, extErr := c.Kolektr.Extract(ctx, node.URL, pageOpts)
 			if extErr == nil && len(extraction.Records) > 0 {
 				structuredData = extraction.Records[0]
 			}
@@ -210,13 +210,13 @@ func (c *Client) CrawlStream(ctx context.Context, targetURL string, opts *CrawlO
 				for k, v := range opts.ExtractSchema {
 					schema[k] = v
 				}
-				pageOpts := &PageOptions{
-					Schema: schema,
+				pageOpts := &ExtractOptions{
+					SchemaSpec: schema,
 				}
 				if fetchResult.ArtifactID != nil {
 					pageOpts.FetchArtifactID = *fetchResult.ArtifactID
 				}
-				extraction, extErr := c.Kolektr.Page(ctx, node.URL, pageOpts)
+				extraction, extErr := c.Kolektr.Extract(ctx, node.URL, pageOpts)
 				if extErr == nil && len(extraction.Records) > 0 {
 					structuredData = extraction.Records[0]
 				}

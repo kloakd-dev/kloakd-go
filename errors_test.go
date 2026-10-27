@@ -6,18 +6,18 @@ import (
 )
 
 func TestRaiseForStatus_Success(t *testing.T) {
-	err := raiseForStatus(200, map[string]interface{}{})
+	err := raiseForStatus(200, map[string]interface{}{}, nil)
 	if err != nil {
 		t.Fatalf("expected nil for 200, got %v", err)
 	}
-	err = raiseForStatus(201, map[string]interface{}{})
+	err = raiseForStatus(201, map[string]interface{}{}, nil)
 	if err != nil {
 		t.Fatalf("expected nil for 201, got %v", err)
 	}
 }
 
 func TestRaiseForStatus_401(t *testing.T) {
-	err := raiseForStatus(401, map[string]interface{}{"detail": "invalid key"})
+	err := raiseForStatus(401, map[string]interface{}{"detail": "invalid key"}, nil)
 	var authErr *AuthenticationError
 	if !errors.As(err, &authErr) {
 		t.Fatalf("expected AuthenticationError, got %T: %v", err, err)
@@ -35,7 +35,7 @@ func TestRaiseForStatus_403(t *testing.T) {
 		"detail":      "not entitled",
 		"module":      "webgrph",
 		"upgrade_url": "https://kloakd.dev/upgrade",
-	})
+	}, nil)
 	var netErr *NotEntitledError
 	if !errors.As(err, &netErr) {
 		t.Fatalf("expected NotEntitledError, got %T: %v", err, err)
@@ -50,7 +50,7 @@ func TestRaiseForStatus_429(t *testing.T) {
 		"detail":      "rate limited",
 		"retry_after": float64(30),
 		"reset_at":    "2026-04-10T00:00:00Z",
-	})
+	}, nil)
 	var rlErr *RateLimitError
 	if !errors.As(err, &rlErr) {
 		t.Fatalf("expected RateLimitError, got %T: %v", err, err)
@@ -64,7 +64,7 @@ func TestRaiseForStatus_429(t *testing.T) {
 }
 
 func TestRaiseForStatus_502(t *testing.T) {
-	err := raiseForStatus(502, map[string]interface{}{"detail": "upstream failed"})
+	err := raiseForStatus(502, map[string]interface{}{"detail": "upstream failed"}, nil)
 	var upErr *UpstreamError
 	if !errors.As(err, &upErr) {
 		t.Fatalf("expected UpstreamError, got %T: %v", err, err)
@@ -72,7 +72,7 @@ func TestRaiseForStatus_502(t *testing.T) {
 }
 
 func TestRaiseForStatus_500(t *testing.T) {
-	err := raiseForStatus(500, map[string]interface{}{"detail": "server error"})
+	err := raiseForStatus(500, map[string]interface{}{"detail": "server error"}, nil)
 	var apiErr *ApiError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected ApiError, got %T: %v", err, err)
@@ -83,7 +83,7 @@ func TestRaiseForStatus_500(t *testing.T) {
 }
 
 func TestRaiseForStatus_FallbackMessage(t *testing.T) {
-	err := raiseForStatus(404, map[string]interface{}{})
+	err := raiseForStatus(404, map[string]interface{}{}, nil)
 	var apiErr *ApiError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected ApiError, got %T: %v", err, err)

@@ -2,6 +2,58 @@
 
 All notable changes to the KLOAKD Go SDK are documented here.
 
+## [0.3.0] — 2026-10-27
+
+Every call now targets a live API route (`ROUTES.md`; a contract test checks
+each call against `testdata/routes.tsv`). Of 125 calls in 0.2.0, 78 were
+right, 32 had a wrong path, fields or behaviour, and 15 had no live route.
+
+### Added
+- `Evadr.Fetch` follows a hand-off: past about 85 s the API answers 202 with
+  a job; the SDK polls `evadr/jobs/{id}` and returns the job's result.
+  `FetchOptions.PollInterval` / `PollTimeout` (defaults 3 s / 15 min) and the
+  context bound the wait.
+- Typed errors: `PaymentRequiredError` (402), `QuotaExceededError` (429
+  `gb_exhausted`, not retried), `BillingUnavailableError` (503
+  `billing_unavailable`, honours `Retry-After`); every error has `Code`, the
+  API's error word.
+- `Webgrph.StartCrawl`, `CancelCrawl`, `CrawlEvents` (stream), and the
+  session, detected-API and reader-view methods (moved from Skanyr).
+- `Evadr.Profile`, `Evadr.JobEvents` (stream); `Fetchyr.Authenticate`,
+  `ResolveMFA`, `ResumeExecution`, `DiscoverAuthChain`, `GetAuthChainStatus`;
+  `Kolektr.Extract`; Skanyr's site API (`ListSites`, `CreateSiteFromCrawl`,
+  `GetSite`, `SetSitePolicy`, `DeleteSite`, `SiteResources`, `SiteAPIs`,
+  `Sync`, `Search`, `Extract`).
+
+### Changed (breaking)
+- `Webgrph.Crawl` waits for the crawl (crawls run asynchronously) and
+  returns every page, read by cursor; `CrawlOptions` loses `Limit`/`Offset`
+  and gains `PollInterval`/`PollTimeout`, `FastMode`, `CaptureMode`.
+  `PageNode` follows the API's node (`ID`, `ParentURL`, `Category`,
+  `Metadata`; `Children` from `children_urls`).
+- `Evadr.FetchStream` starts an async fetch and streams its job events (no
+  POST stream route exists). `Evadr.Scan(ctx, url)` takes the URL only.
+- `Fetchyr.CreateWorkflow(ctx, name, steps, *CreateWorkflowOptions)`;
+  `ExecuteWorkflow(ctx, id, targetURL, *ExecuteWorkflowOptions)`;
+  `FillForm` loses `submit`; `CreateMultiSiteWorkflow(ctx, name, sites)`;
+  `CheckDuplicates` → `CheckDuplicate(ctx, url, *CheckDuplicateOptions)`;
+  result types follow the API's fields.
+- `Kolektr.Page` → `Extract` (`Page` remains as a deprecated alias);
+  `ExtractOptions.SchemaSpec` (sent as `schema_spec`); `PageAll` removed
+  (extraction is not paginated); `ExtractHTML` posts to `kolektr/extract/html`.
+- `Nexus.Analyze(ctx, url, html, opts)`; `Synthesize(ctx, url, html, goal)`;
+  `Execute(ctx, strategyID, url, options)`; result types follow the API.
+- A JSON array response is returned as `{"items": [...]}` (it was dropped).
+- `Config.MaxRetries`: negative means no retries (0 still means the default, 3).
+
+### Removed (no live route)
+- `Fetchyr.Login` (use `StoreCredentials` + `Authenticate`), `Fetchyr.Fetch`
+  (use `Evadr.Fetch` with `SessionArtifactID`), `Fetchyr.SubmitMFA`.
+- `Webgrph.GetHierarchy`, `Webgrph.GetJob`, `Evadr.GetJobEvents` (now `JobEvents`).
+- Skanyr's discovery API: `Discover`, `DiscoverAll`, `DiscoverStream`,
+  `GetDiscovery`, `GetDiscoveryEvents`, `AnalyzeBundle`, `DiscoverPageLive`,
+  `Hierarchy`, `ExpandNode`, `Retry`, `Health`, `GetApiMap`, `GetJob`.
+
 ## [0.2.0] — 2026-05-13
 
 ### Added

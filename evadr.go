@@ -3,7 +3,15 @@ package kloakd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
+	"time"
+)
+
+// Defaults for following a fetch that the API hands off as a job.
+const (
+	DefaultFetchPollInterval = 3 * time.Second
+	DefaultFetchPollTimeout  = 15 * time.Minute
 )
 
 // EvadrNamespace exposes the Anti-Bot Intelligence module.
@@ -17,6 +25,20 @@ type FetchOptions struct {
 	ForceBrowser      bool
 	UseProxy          bool
 	SessionArtifactID string
+	// PollInterval and PollTimeout govern following a fetch the API hands
+	// off as a job (HTTP 202, after about 85 s). Defaults 3 s and 15 min;
+	// ctx cancellation also stops the wait.
+	PollInterval time.Duration
+	PollTimeout  time.Duration
+}
+
+// HandedOff describes a 202 from the synchronous fetch: still running,
+// continuing as the job JobID.
+type HandedOff struct {
+	JobID         string
+	Reason        string
+	WaitedSeconds float64
+	PollURL       string
 }
 
 // Fetch performs an anti-bot fetch of the given URL.
@@ -34,18 +56,64 @@ func (e *EvadrNamespace) Fetch(ctx context.Context, targetURL string, opts *Fetc
 		}
 	}
 
-	raw, err := e.t.post(ctx, "evadr/fetch", body)
+	status, raw, err := e.t.do(ctx, http.MethodPost, "evadr/fetch", body, nil)
 	if err != nil {
 		return nil, err
+	}
+	if status == http.StatusAccepted {
+		if jobID, _ := raw["job_id"].(string); jobID != "" {
+			return e.followJob(ctx, jobID, opts)
+		}
 	}
 	return parseFetchResult(raw), nil
 }
 
+// followJob polls a handed-off fetch until it completes or fails.
+func (e *EvadrNamespace) followJob(ctx context.Context, jobID string, opts *FetchOptions) (*FetchResult, error) {
+	interval, limit := DefaultFetchPollInterval, DefaultFetchPollTimeout
+	if opts != nil {
+		if opts.PollInterval > 0 {
+			interval = opts.PollInterval
+		}
+		if opts.PollTimeout > 0 {
+			limit = opts.PollTimeout
+		}
+	}
+	deadline := time.Now().Add(limit)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(interval):
+		}
+		job, err := e.t.get(ctx, fmt.Sprintf("evadr/jobs/%s", jobID), nil)
+		if err != nil {
+			return nil, err
+		}
+		switch strField(job, "status") {
+		case "completed":
+			return parseFetchResult(mapField(job, "result")), nil
+		case "failed":
+			msg := strField(job, "error")
+			if msg == "" {
+				msg = "fetch job failed"
+			}
+			return nil, &ApiError{KloakdError: KloakdError{StatusCode: 200, Message: msg, Code: "job_failed"}}
+		}
+		if time.Now().After(deadline) {
+			return nil, &ApiError{KloakdError: KloakdError{
+				Message: fmt.Sprintf("fetch job %s still running after %s", jobID, limit), Code: "job_timeout",
+			}}
+		}
+	}
+}
+
 // FetchAsyncOptions configures optional parameters for Evadr.FetchAsync.
 type FetchAsyncOptions struct {
-	ForceBrowser bool
-	UseProxy     bool
-	WebhookURL   string
+	ForceBrowser      bool
+	UseProxy          bool
+	SessionArtifactID string
+	WebhookURL        string
 }
 
 // FetchAsync enqueues an anti-bot fetch job and returns the job ID.
@@ -57,6 +125,9 @@ func (e *EvadrNamespace) FetchAsync(ctx context.Context, targetURL string, opts 
 		}
 		if opts.UseProxy {
 			body["use_proxy"] = true
+		}
+		if opts.SessionArtifactID != "" {
+			body["session_artifact_id"] = opts.SessionArtifactID
 		}
 		if opts.WebhookURL != "" {
 			body["webhook_url"] = opts.WebhookURL
@@ -73,19 +144,26 @@ func (e *EvadrNamespace) FetchAsync(ctx context.Context, targetURL string, opts 
 
 // FetchStreamOptions configures optional parameters for Evadr.FetchStream.
 type FetchStreamOptions struct {
-	ForceBrowser bool
+	ForceBrowser      bool
+	UseProxy          bool
+	SessionArtifactID string
 }
 
-// FetchStream opens a server-sent events stream for an anti-bot fetch operation.
-// Returns a read-only channel of FetchEvent values. The channel is closed
-// when the stream ends or ctx is cancelled.
+// FetchStream starts an asynchronous fetch and streams its progress events
+// (GET evadr/jobs/{job_id}/events). The channel closes when the job ends or
+// ctx is cancelled. There is no POST stream route; this is the live route.
 func (e *EvadrNamespace) FetchStream(ctx context.Context, targetURL string, opts *FetchStreamOptions) (<-chan FetchEvent, error) {
-	body := map[string]interface{}{"url": targetURL}
-	if opts != nil && opts.ForceBrowser {
-		body["force_browser"] = true
+	asyncOpts := &FetchAsyncOptions{}
+	if opts != nil {
+		asyncOpts.ForceBrowser = opts.ForceBrowser
+		asyncOpts.UseProxy = opts.UseProxy
+		asyncOpts.SessionArtifactID = opts.SessionArtifactID
 	}
-
-	raw, err := e.t.stream(ctx, "evadr/fetch/stream", body)
+	jobID, err := e.FetchAsync(ctx, targetURL, asyncOpts)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := e.JobEvents(ctx, jobID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,21 +207,15 @@ func (e *EvadrNamespace) Analyze(ctx context.Context, targetURL string, opts *An
 	return parseAnalyzeResult(raw), nil
 }
 
-// Scan scans a URL response for anti-bot vendor signatures.
-func (e *EvadrNamespace) Scan(ctx context.Context, targetURL string, opts *AnalyzeOptions) (map[string]interface{}, error) {
-	body := map[string]interface{}{"url": targetURL}
-	if opts != nil {
-		if opts.StatusCode != 0 {
-			body["status_code"] = opts.StatusCode
-		}
-		if len(opts.Headers) > 0 {
-			body["headers"] = opts.Headers
-		}
-		if opts.BodySnippet != "" {
-			body["body_snippet"] = opts.BodySnippet
-		}
-	}
-	return e.t.post(ctx, "evadr/scan", body)
+// Scan fetches a URL once (plain HTTP) and reports its anti-bot
+// infrastructure, vendors and challenges.
+func (e *EvadrNamespace) Scan(ctx context.Context, targetURL string) (map[string]interface{}, error) {
+	return e.t.post(ctx, "evadr/scan", map[string]interface{}{"url": targetURL})
+}
+
+// Profile analyses a URL and returns its canonical site profile.
+func (e *EvadrNamespace) Profile(ctx context.Context, targetURL string) (map[string]interface{}, error) {
+	return e.t.post(ctx, "evadr/profile", map[string]interface{}{"url": targetURL})
 }
 
 // GetJob polls an async fetch job by ID.
@@ -151,9 +223,10 @@ func (e *EvadrNamespace) GetJob(ctx context.Context, jobID string) (map[string]i
 	return e.t.get(ctx, fmt.Sprintf("evadr/jobs/%s", jobID), nil)
 }
 
-// GetJobEvents retrieves SSE events for an async fetch job.
-func (e *EvadrNamespace) GetJobEvents(ctx context.Context, jobID string) (map[string]interface{}, error) {
-	return e.t.get(ctx, fmt.Sprintf("evadr/jobs/%s/events", jobID), nil)
+// JobEvents streams an async fetch job's progress events (SSE). The
+// channel closes when the job ends or ctx is cancelled.
+func (e *EvadrNamespace) JobEvents(ctx context.Context, jobID string) (<-chan map[string]interface{}, error) {
+	return e.t.getStream(ctx, fmt.Sprintf("evadr/jobs/%s/events", jobID), nil)
 }
 
 // ListVendors lists all known anti-bot detection vendors.

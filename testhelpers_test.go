@@ -2,6 +2,7 @@ package kloakd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +21,7 @@ func newTestClient(server *httptest.Server) *Client {
 		APIKey:         testAPIKey,
 		OrganizationID: testOrgID,
 		BaseURL:        server.URL,
-		MaxRetries:     0, // no retries in unit tests
+		MaxRetries:     -1, // no retries in unit tests
 		HTTPClient:     server.Client(),
 	})
 	if err != nil {
@@ -70,7 +71,10 @@ func sseHandler(payloads []map[string]interface{}) http.HandlerFunc {
 }
 
 // sseEventHandler returns an httptest handler that streams SSE with event names.
-func sseEventHandler(pairs []struct{ Event string; Data map[string]interface{} }) http.HandlerFunc {
+func sseEventHandler(pairs []struct {
+	Event string
+	Data  map[string]interface{}
+}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -136,3 +140,33 @@ func drain[T any](ch <-chan T, timeout time.Duration) []T {
 		}
 	}
 }
+
+// routeServer answers by "METHOD /path-after-org-prefix" (query ignored) and
+// records every request it sees as "METHOD path". Unknown routes get 404.
+type routeServer struct {
+	routes map[string]http.HandlerFunc
+	seen   []string
+	bodies map[string]map[string]interface{}
+}
+
+func newRouteServer(routes map[string]http.HandlerFunc) (*routeServer, *httptest.Server) {
+	rs := &routeServer{routes: routes, bodies: map[string]map[string]interface{}{}}
+	return rs, httptest.NewServer(rs)
+}
+
+func (rs *routeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	prefix := "/api/v1/organizations/" + testOrgID + "/"
+	key := r.Method + " " + strings.TrimPrefix(r.URL.Path, prefix)
+	rs.seen = append(rs.seen, key)
+	body := map[string]interface{}{}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	rs.bodies[key] = body
+	if h, ok := rs.routes[key]; ok {
+		h(w, r)
+		return
+	}
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = w.Write([]byte(`{"detail":"Not Found"}`))
+}
+
+func errorsAs(err error, target interface{}) bool { return errors.As(err, target) }

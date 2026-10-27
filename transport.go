@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	sdkVersion     = "0.2.0"
+	sdkVersion     = "0.3.0"
 	defaultBaseURL = "https://api.kloakd.dev"
 	defaultTimeout = 30 * time.Second
 	defaultRetries = 3
@@ -49,10 +49,10 @@ func newTransport(cfg Config) *transport {
 
 func (t *transport) authHeaders() map[string]string {
 	return map[string]string{
-		"Authorization":        "Bearer " + t.apiKey,
+		"Authorization":         "Bearer " + t.apiKey,
 		"X-Kloakd-Organization": t.organizationID,
-		"X-Kloakd-SDK":        "go/" + sdkVersion,
-		"Content-Type":        "application/json",
+		"X-Kloakd-SDK":          "go/" + sdkVersion,
+		"Content-Type":          "application/json",
 	}
 }
 
@@ -79,6 +79,19 @@ func (t *transport) request(
 	body map[string]interface{},
 	params map[string]string,
 ) (map[string]interface{}, error) {
+	_, parsed, err := t.do(ctx, method, path, body, params)
+	return parsed, err
+}
+
+// do is request that also returns the HTTP status (a 202 from the
+// synchronous fetch means the work continues as a job). A top-level JSON
+// array is returned as {"items": [...]}.
+func (t *transport) do(
+	ctx context.Context,
+	method, path string,
+	body map[string]interface{},
+	params map[string]string,
+) (int, map[string]interface{}, error) {
 	reqURL := t.buildURL(path, params)
 
 	var bodyBytes []byte
@@ -86,7 +99,7 @@ func (t *transport) request(
 		var err error
 		bodyBytes, err = json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("kloakd: marshal request body: %w", err)
+			return 0, nil, fmt.Errorf("kloakd: marshal request body: %w", err)
 		}
 	}
 
@@ -99,7 +112,7 @@ func (t *transport) request(
 
 		req, err := http.NewRequestWithContext(ctx, method, reqURL, reqBody)
 		if err != nil {
-			return nil, fmt.Errorf("kloakd: create request: %w", err)
+			return 0, nil, fmt.Errorf("kloakd: create request: %w", err)
 		}
 		for k, v := range t.authHeaders() {
 			req.Header.Set(k, v)
@@ -107,29 +120,23 @@ func (t *transport) request(
 
 		resp, err := t.httpClient.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("kloakd: execute request: %w", err)
+			return 0, nil, fmt.Errorf("kloakd: execute request: %w", err)
 		}
 
 		respBody, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
-			return nil, fmt.Errorf("kloakd: read response: %w", err)
+			return 0, nil, fmt.Errorf("kloakd: read response: %w", err)
 		}
 
-		var parsed map[string]interface{}
-		if len(respBody) > 0 {
-			_ = json.Unmarshal(respBody, &parsed)
-		}
-		if parsed == nil {
-			parsed = map[string]interface{}{}
-		}
+		parsed := decodeBody(respBody)
 
-		sdkErr := raiseForStatus(resp.StatusCode, parsed)
+		sdkErr := raiseForStatus(resp.StatusCode, parsed, resp.Header)
 		if sdkErr == nil {
-			return parsed, nil
+			return resp.StatusCode, parsed, nil
 		}
-		if !isRetryable(resp.StatusCode) {
-			return nil, sdkErr
+		if !isRetryableError(sdkErr) {
+			return resp.StatusCode, nil, sdkErr
 		}
 
 		lastErr = sdkErr
@@ -137,12 +144,31 @@ func (t *transport) request(
 			wait := backoff(attempt, resp.Header.Get("Retry-After"), parsed)
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return 0, nil, ctx.Err()
 			case <-time.After(wait):
 			}
 		}
 	}
-	return nil, lastErr
+	return 0, nil, lastErr
+}
+
+// decodeBody parses a JSON body; an array becomes {"items": [...]}.
+func decodeBody(respBody []byte) map[string]interface{} {
+	parsed := map[string]interface{}{}
+	if len(respBody) == 0 {
+		return parsed
+	}
+	var anyBody interface{}
+	if err := json.Unmarshal(respBody, &anyBody); err != nil {
+		return parsed
+	}
+	switch v := anyBody.(type) {
+	case map[string]interface{}:
+		return v
+	case []interface{}:
+		parsed["items"] = v
+	}
+	return parsed
 }
 
 func (t *transport) get(ctx context.Context, path string, params map[string]string) (map[string]interface{}, error) {
@@ -204,9 +230,10 @@ func (t *transport) streamWithEvents(
 		return nil, fmt.Errorf("kloakd: execute request: %w", err)
 	}
 
-	if err := raiseForStatus(resp.StatusCode, map[string]interface{}{}); err != nil {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, err
+		return nil, raiseForStatus(resp.StatusCode, decodeBody(errBody), resp.Header)
 	}
 
 	ch := make(chan ChatEvent, 16)
@@ -246,14 +273,33 @@ func (t *transport) streamInternal(
 	body map[string]interface{},
 	_ bool,
 ) (<-chan map[string]interface{}, error) {
-	reqURL := t.buildURL(path, nil)
-
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("kloakd: marshal request body: %w", err)
 	}
+	return t.openStream(ctx, http.MethodPost, t.buildURL(path, nil), bodyBytes)
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(bodyBytes))
+// getStream opens a server-sent events stream with GET (job, crawl and
+// pipeline event routes).
+func (t *transport) getStream(
+	ctx context.Context,
+	path string,
+	params map[string]string,
+) (<-chan map[string]interface{}, error) {
+	return t.openStream(ctx, http.MethodGet, t.buildURL(path, params), nil)
+}
+
+func (t *transport) openStream(
+	ctx context.Context,
+	method, reqURL string,
+	bodyBytes []byte,
+) (<-chan map[string]interface{}, error) {
+	var reqBody io.Reader
+	if bodyBytes != nil {
+		reqBody = bytes.NewReader(bodyBytes)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("kloakd: create request: %w", err)
 	}
@@ -267,9 +313,10 @@ func (t *transport) streamInternal(
 		return nil, fmt.Errorf("kloakd: execute request: %w", err)
 	}
 
-	if err := raiseForStatus(resp.StatusCode, map[string]interface{}{}); err != nil {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, err
+		return nil, raiseForStatus(resp.StatusCode, decodeBody(errBody), resp.Header)
 	}
 
 	ch := make(chan map[string]interface{}, 16)
@@ -277,6 +324,7 @@ func (t *transport) streamInternal(
 		defer resp.Body.Close()
 		defer close(ch)
 		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if !strings.HasPrefix(line, "data:") {
@@ -309,9 +357,11 @@ func backoff(attempt int, retryAfterHdr string, body map[string]interface{}) tim
 			return time.Duration(secs) * time.Second
 		}
 	}
-	if v, ok := body["retry_after"]; ok {
-		if secs, ok := v.(float64); ok && secs > 0 {
-			return time.Duration(secs) * time.Second
+	for _, m := range []map[string]interface{}{body, detailMap(body)} {
+		if v, ok := m["retry_after"]; ok {
+			if secs, ok := v.(float64); ok && secs > 0 {
+				return time.Duration(secs) * time.Second
+			}
 		}
 	}
 	ms := math.Min(float64(1000)*math.Pow(2, float64(attempt)), 60_000)

@@ -13,20 +13,15 @@ type NexusNamespace struct {
 
 // NexusAnalyzeOptions configures optional parameters for Nexus.Analyze.
 type NexusAnalyzeOptions struct {
-	HTML        string
 	Constraints map[string]interface{}
 }
 
-// Analyze analyzes a URL using the Nexus perception layer.
-func (n *NexusNamespace) Analyze(ctx context.Context, targetURL string, opts *NexusAnalyzeOptions) (*NexusAnalyzeResult, error) {
-	body := map[string]interface{}{"url": targetURL}
-	if opts != nil {
-		if opts.HTML != "" {
-			body["html"] = opts.HTML
-		}
-		if len(opts.Constraints) > 0 {
-			body["constraints"] = opts.Constraints
-		}
+// Analyze classifies a page and proposes an extraction strategy. The API
+// needs the page's HTML (fetch it first, e.g. with Evadr.Fetch).
+func (n *NexusNamespace) Analyze(ctx context.Context, targetURL, html string, opts *NexusAnalyzeOptions) (*NexusAnalyzeResult, error) {
+	body := map[string]interface{}{"url": targetURL, "html": html}
+	if opts != nil && len(opts.Constraints) > 0 {
+		body["constraints"] = opts.Constraints
 	}
 
 	raw, err := n.t.post(ctx, "nexus/analyze", body)
@@ -36,25 +31,11 @@ func (n *NexusNamespace) Analyze(ctx context.Context, targetURL string, opts *Ne
 	return parseNexusAnalyzeResult(raw), nil
 }
 
-// NexusSynthesizeOptions configures optional parameters for Nexus.Synthesize.
-type NexusSynthesizeOptions struct {
-	Strategy string
-	Timeout  int
-}
-
-// Synthesize generates a scraping strategy from a perception ID.
-func (n *NexusNamespace) Synthesize(ctx context.Context, perceptionID string, opts *NexusSynthesizeOptions) (*NexusSynthesisResult, error) {
-	body := map[string]interface{}{"perception_id": perceptionID}
-	if opts != nil {
-		if opts.Strategy != "" {
-			body["strategy"] = opts.Strategy
-		}
-		if opts.Timeout > 0 {
-			body["timeout"] = opts.Timeout
-		}
-	}
-
-	raw, err := n.t.post(ctx, "nexus/synthesize", body)
+// Synthesize generates an extraction program for a page and a goal.
+func (n *NexusNamespace) Synthesize(ctx context.Context, targetURL, html, goal string) (*NexusSynthesisResult, error) {
+	raw, err := n.t.post(ctx, "nexus/synthesize", map[string]interface{}{
+		"url": targetURL, "html": html, "goal": goal,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -71,11 +52,15 @@ func (n *NexusNamespace) Verify(ctx context.Context, strategyID string) (*NexusV
 }
 
 // Execute runs a verified strategy against a URL.
-func (n *NexusNamespace) Execute(ctx context.Context, strategyID, targetURL string) (*NexusExecuteResult, error) {
-	raw, err := n.t.post(ctx, "nexus/execute", map[string]interface{}{
+func (n *NexusNamespace) Execute(ctx context.Context, strategyID, targetURL string, options map[string]interface{}) (*NexusExecuteResult, error) {
+	body := map[string]interface{}{
 		"strategy_id": strategyID,
 		"url":         targetURL,
-	})
+	}
+	if len(options) > 0 {
+		body["options"] = options
+	}
+	raw, err := n.t.post(ctx, "nexus/execute", body)
 	if err != nil {
 		return nil, err
 	}
@@ -166,15 +151,14 @@ func (n *NexusNamespace) GetRecommendationStatistics(ctx context.Context) (map[s
 // ─── parsers ─────────────────────────────────────────────────────────────────
 
 func parseNexusAnalyzeResult(raw map[string]interface{}) *NexusAnalyzeResult {
-	strategy := mapField(raw, "strategy")
 	return &NexusAnalyzeResult{
-		PerceptionID:    strField(raw, "perception_id"),
-		Strategy:        strategy,
-		PageType:        strField(raw, "page_type"),
-		ComplexityLevel: strField(raw, "complexity_level"),
-		ArtifactID:      optStrField(raw, "artifact_id"),
-		DurationMs:      intField(raw, "duration_ms"),
-		Error:           optStrField(raw, "error"),
+		URL:          strField(raw, "url"),
+		PerceptionID: strField(raw, "perception_id"),
+		ReasoningID:  strField(raw, "reasoning_id"),
+		Strategy:     mapField(raw, "strategy"),
+		PageType:     strField(raw, "page_type"),
+		Confidence:   float64Field(raw, "confidence"),
+		ArtifactID:   nestedArtifactID(raw),
 	}
 }
 
@@ -182,41 +166,39 @@ func parseNexusSynthesisResult(raw map[string]interface{}) *NexusSynthesisResult
 	return &NexusSynthesisResult{
 		StrategyID:      strField(raw, "strategy_id"),
 		StrategyName:    strField(raw, "strategy_name"),
-		GeneratedCode:   strField(raw, "generated_code"),
-		ArtifactID:      optStrField(raw, "artifact_id"),
+		StrategyType:    strField(raw, "strategy_type"),
+		Program:         strField(raw, "program"),
+		Confidence:      float64Field(raw, "confidence"),
+		Steps:           sliceMapField(raw, "steps"),
 		SynthesisTimeMs: intField(raw, "synthesis_time_ms"),
-		Error:           optStrField(raw, "error"),
 	}
 }
 
 func parseNexusVerifyResult(raw map[string]interface{}) *NexusVerifyResult {
 	return &NexusVerifyResult{
-		VerificationResultID: strField(raw, "verification_result_id"),
-		IsSafe:               boolField(raw, "is_safe"),
-		RiskScore:            float64Field(raw, "risk_score"),
-		SafetyScore:          float64Field(raw, "safety_score"),
-		Violations:           strSliceField(raw, "violations"),
-		DurationMs:           intField(raw, "duration_ms"),
-		Error:                optStrField(raw, "error"),
+		StrategyID:  strField(raw, "strategy_id"),
+		Verified:    boolField(raw, "verified"),
+		SafetyScore: float64Field(raw, "safety_score"),
+		Violations:  strSliceField(raw, "violations"),
 	}
 }
 
 func parseNexusExecuteResult(raw map[string]interface{}) *NexusExecuteResult {
 	return &NexusExecuteResult{
-		ExecutionResultID: strField(raw, "execution_result_id"),
-		Success:           boolField(raw, "success"),
-		Records:           sliceMapField(raw, "records"),
-		ArtifactID:        optStrField(raw, "artifact_id"),
-		DurationMs:        intField(raw, "duration_ms"),
-		Error:             optStrField(raw, "error"),
+		StrategyID: strField(raw, "strategy_id"),
+		Success:    boolField(raw, "success"),
+		Records:    sliceMapField(raw, "records"),
+		ArtifactID: nestedArtifactID(raw),
+		DurationMs: intField(raw, "duration_ms"),
+		Error:      optStrField(raw, "error_message"),
 	}
 }
 
 func parseNexusKnowledgeResult(raw map[string]interface{}) *NexusKnowledgeResult {
 	return &NexusKnowledgeResult{
 		LearnedConcepts: sliceMapField(raw, "learned_concepts"),
-		LearnedPatterns: sliceMapField(raw, "learned_patterns"),
+		Patterns:        sliceMapField(raw, "patterns"),
+		TotalPatterns:   intField(raw, "total_patterns"),
 		DurationMs:      intField(raw, "duration_ms"),
-		Error:           optStrField(raw, "error"),
 	}
 }

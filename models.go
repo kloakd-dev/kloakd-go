@@ -35,11 +35,14 @@ type AnalyzeResult struct {
 
 // PageNode represents a single page in the site hierarchy.
 type PageNode struct {
-	URL        string
-	Depth      int
-	Title      *string
-	StatusCode *int
-	Children   []string
+	ID        string
+	URL       string
+	ParentURL *string
+	Depth     int
+	Category  string
+	Title     *string
+	Children  []string
+	Metadata  map[string]interface{}
 }
 
 // CrawlResult is returned by Webgrph.Crawl.
@@ -47,10 +50,10 @@ type CrawlResult struct {
 	Success         bool
 	CrawlID         string
 	URL             string
+	Status          string
 	TotalPages      int
 	MaxDepthReached int
 	Pages           []PageNode
-	HasMore         bool
 	Total           int
 	ArtifactID      *string
 	Error           *string
@@ -67,86 +70,54 @@ type CrawlEvent struct {
 
 // ─── Skanyr ──────────────────────────────────────────────────────────────────
 
-// ApiEndpoint represents a discovered API endpoint.
-type ApiEndpoint struct {
-	URL        string
-	Method     string
-	ApiType    string
-	Confidence float64
-	Parameters map[string]interface{}
-}
-
-// DiscoverResult is returned by Skanyr.Discover.
-type DiscoverResult struct {
-	Success        bool
-	DiscoveryID    string
-	URL            string
-	TotalEndpoints int
-	Endpoints      []ApiEndpoint
-	HasMore        bool
-	Total          int
-	ArtifactID     *string
-	Error          *string
-}
-
-// DiscoverEvent is yielded by Skanyr.DiscoverStream.
-type DiscoverEvent struct {
-	Type        string
-	EndpointURL *string
-	ApiType     *string
-	Metadata    map[string]interface{}
-}
-
 // ─── Nexus ───────────────────────────────────────────────────────────────────
 
 // NexusAnalyzeResult is returned by Nexus.Analyze.
 type NexusAnalyzeResult struct {
-	PerceptionID    string
-	Strategy        map[string]interface{}
-	PageType        string
-	ComplexityLevel string
-	ArtifactID      *string
-	DurationMs      int
-	Error           *string
+	URL          string
+	PerceptionID string
+	ReasoningID  string
+	Strategy     map[string]interface{}
+	PageType     string
+	Confidence   float64
+	ArtifactID   *string
 }
 
 // NexusSynthesisResult is returned by Nexus.Synthesize.
 type NexusSynthesisResult struct {
 	StrategyID      string
 	StrategyName    string
-	GeneratedCode   string
-	ArtifactID      *string
+	StrategyType    string
+	Program         string
+	Confidence      float64
+	Steps           []map[string]interface{}
 	SynthesisTimeMs int
-	Error           *string
 }
 
 // NexusVerifyResult is returned by Nexus.Verify.
 type NexusVerifyResult struct {
-	VerificationResultID string
-	IsSafe               bool
-	RiskScore            float64
-	SafetyScore          float64
-	Violations           []string
-	DurationMs           int
-	Error                *string
+	StrategyID  string
+	Verified    bool
+	SafetyScore float64
+	Violations  []string
 }
 
 // NexusExecuteResult is returned by Nexus.Execute.
 type NexusExecuteResult struct {
-	ExecutionResultID string
-	Success           bool
-	Records           []map[string]interface{}
-	ArtifactID        *string
-	DurationMs        int
-	Error             *string
+	StrategyID string
+	Success    bool
+	Records    []map[string]interface{}
+	ArtifactID *string
+	DurationMs int
+	Error      *string
 }
 
 // NexusKnowledgeResult is returned by Nexus.Knowledge.
 type NexusKnowledgeResult struct {
 	LearnedConcepts []map[string]interface{}
-	LearnedPatterns []map[string]interface{}
+	Patterns        []map[string]interface{}
+	TotalPatterns   int
 	DurationMs      int
-	Error           *string
 }
 
 // ─── Parlyr ──────────────────────────────────────────────────────────────────
@@ -184,35 +155,26 @@ type ChatEvent struct {
 
 // ─── Fetchyr ─────────────────────────────────────────────────────────────────
 
-// SessionResult is returned by Fetchyr.Login.
+// SessionResult is returned by Fetchyr.Authenticate.
 type SessionResult struct {
-	Success       bool
-	SessionID     string
-	URL           string
-	ArtifactID    *string
-	ScreenshotURL *string
-	Error         *string
-}
-
-// FetchyrResult is returned by Fetchyr.Fetch.
-type FetchyrResult struct {
-	Success           bool
-	URL               string
-	StatusCode        int
-	HTML              *string
-	ArtifactID        *string
-	SessionArtifactID string
-	Error             *string
+	Success      bool
+	SessionID    string
+	ArtifactID   *string
+	TargetDomain *string
+	AuthMethod   *string
+	Error        *string
 }
 
 // WorkflowResult is returned by Fetchyr.CreateWorkflow.
 type WorkflowResult struct {
-	WorkflowID string
-	Name       string
-	Steps      []map[string]interface{}
-	URL        *string
-	CreatedAt  string
-	Error      *string
+	WorkflowID   string
+	Name         string
+	Description  *string
+	WorkflowType string
+	Steps        []map[string]interface{}
+	IsActive     bool
+	CreatedAt    string
+	Error        *string
 }
 
 // ExecutionResult is returned by Fetchyr.ExecuteWorkflow / GetExecution.
@@ -222,15 +184,16 @@ type ExecutionResult struct {
 	Status      string
 	StartedAt   *string
 	CompletedAt *string
-	Records     []map[string]interface{}
+	Result      map[string]interface{}
 	Error       *string
 }
 
 // FormDetectionResult is returned by Fetchyr.DetectForms.
 type FormDetectionResult struct {
-	Forms      []map[string]interface{}
-	TotalForms int
-	Error      *string
+	URL               string
+	FormsFound        int
+	LoginFormDetected bool
+	Fields            []map[string]interface{}
 }
 
 // MfaDetectionResult is returned by Fetchyr.DetectMFA.
@@ -238,27 +201,20 @@ type MfaDetectionResult struct {
 	MfaDetected bool
 	ChallengeID *string
 	MfaType     *string
-	Error       *string
+	Message     *string
 }
 
-// MfaResult is returned by Fetchyr.SubmitMFA.
-type MfaResult struct {
-	Success           bool
-	SessionArtifactID *string
-	Error             *string
-}
-
-// DeduplicationResult is returned by Fetchyr.CheckDuplicates.
+// DeduplicationResult is returned by Fetchyr.CheckDuplicate.
 type DeduplicationResult struct {
-	UniqueRecords  []map[string]interface{}
-	DuplicateCount int
-	TotalInput     int
-	Error          *string
+	IsDuplicate     bool
+	OriginalURL     *string
+	SimilarityScore float64
+	MatchType       *string
 }
 
 // ─── Kolektr ─────────────────────────────────────────────────────────────────
 
-// ExtractionResult is returned by Kolektr.Page and Kolektr.ExtractHTML.
+// ExtractionResult is returned by Kolektr.Extract and Kolektr.ExtractHTML.
 type ExtractionResult struct {
 	Success      bool
 	URL          string
@@ -266,8 +222,6 @@ type ExtractionResult struct {
 	Records      []map[string]interface{}
 	TotalRecords int
 	PagesScraped int
-	HasMore      bool
-	Total        int
 	ArtifactID   *string
 	JobID        *string
 	Error        *string
@@ -277,14 +231,14 @@ type ExtractionResult struct {
 
 // CrawlPage represents a single page result from the high-level Crawl() orchestrator.
 type CrawlPage struct {
-	Success       bool
-	URL           string
-	StatusCode    int
-	TierUsed      int
-	HTML          *string
+	Success        bool
+	URL            string
+	StatusCode     int
+	TierUsed       int
+	HTML           *string
 	StructuredData map[string]interface{}
-	ArtifactID    *string
-	Error         *string
+	ArtifactID     *string
+	Error          *string
 }
 
 // Ok returns true if the page was fetched successfully.
@@ -294,24 +248,24 @@ func (p CrawlPage) Ok() bool {
 
 // SiteCrawlResult is returned by Client.Crawl.
 type SiteCrawlResult struct {
-	Success               bool
-	URL                   string
-	TotalPagesDiscovered  int
-	PagesFetched          int
-	PagesFailed           int
-	Pages                 []CrawlPage
-	CrawlArtifactID       *string
-	Error                 *string
+	Success              bool
+	URL                  string
+	TotalPagesDiscovered int
+	PagesFetched         int
+	PagesFailed          int
+	Pages                []CrawlPage
+	CrawlArtifactID      *string
+	Error                *string
 }
 
 // CrawlProgressEvent is yielded by Client.CrawlStream.
 type CrawlProgressEvent struct {
-	Type    string
-	URL     *string
-	Page    *int
-	Total   *int
-	Success *bool
-	Error   *string
+	Type     string
+	URL      *string
+	Page     *int
+	Total    *int
+	Success  *bool
+	Error    *string
 	Metadata map[string]interface{}
 }
 

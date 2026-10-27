@@ -2,233 +2,141 @@ package kloakd
 
 import (
 	"context"
-	"net/http/httptest"
+	"net/http"
 	"testing"
 )
 
-var sessionResponse = map[string]interface{}{
-	"success":        true,
-	"session_id":     "sess-001",
-	"url":            "https://example.com/dashboard",
-	"artifact_id":    "art-sess-001",
-	"screenshot_url": "https://cdn.kloakd.dev/screenshot.png",
-	"error":          nil,
-}
-
-func TestFetchyr_Login(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, sessionResponse))
+func TestFetchyr_Authenticate(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST fetchyr/authenticate": jsonHandler(200, map[string]interface{}{
+			"success": true, "session_id": "s1", "artifact_id": "art-1",
+			"target_domain": "example.com", "auth_method": "form",
+		}),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	result, err := client.Fetchyr.Login(
-		context.Background(),
-		"https://example.com/login",
-		"#username", "#password",
-		"user@example.com", "secret",
-		nil,
-	)
+	result, err := newTestClient(server).Fetchyr.Authenticate(context.Background(), "my-login", "https://example.com/login")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Success {
-		t.Error("expected Success=true")
+	if !result.Success || result.SessionID != "s1" || *result.ArtifactID != "art-1" || *result.AuthMethod != "form" {
+		t.Errorf("unexpected result: %+v", result)
 	}
-	if result.SessionID != "sess-001" {
-		t.Errorf("expected sess-001, got %s", result.SessionID)
-	}
-	if result.ArtifactID == nil || *result.ArtifactID != "art-sess-001" {
-		t.Errorf("unexpected ArtifactID: %v", result.ArtifactID)
-	}
-}
-
-func TestFetchyr_Login_WithOptions(t *testing.T) {
-	cap := &captureHandler{inner: jsonHandler(200, sessionResponse)}
-	server := httptest.NewServer(cap)
-	defer server.Close()
-
-	client := newTestClient(server)
-	_, err := client.Fetchyr.Login(
-		context.Background(),
-		"https://example.com/login",
-		"#username", "#password",
-		"user@example.com", "secret",
-		&LoginOptions{SubmitSelector: "#submit", SuccessURLContains: "/dashboard"},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cap.lastBody["submit_selector"] != "#submit" {
-		t.Errorf("unexpected submit_selector: %v", cap.lastBody["submit_selector"])
-	}
-}
-
-func TestFetchyr_Fetch(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"success":             true,
-		"url":                 "https://example.com/protected",
-		"status_code":         float64(200),
-		"html":                "<html>Protected page</html>",
-		"artifact_id":         "art-fetchyr-001",
-		"session_artifact_id": "art-sess-001",
-	}))
-	defer server.Close()
-
-	client := newTestClient(server)
-	result, err := client.Fetchyr.Fetch(context.Background(), "https://example.com/protected", "art-sess-001", nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.StatusCode != 200 {
-		t.Errorf("expected 200, got %d", result.StatusCode)
-	}
-	if result.SessionArtifactID != "art-sess-001" {
-		t.Errorf("unexpected session_artifact_id: %s", result.SessionArtifactID)
+	body := rs.bodies["POST fetchyr/authenticate"]
+	if body["credential_name"] != "my-login" || body["target_url"] != "https://example.com/login" {
+		t.Errorf("unexpected body: %v", body)
 	}
 }
 
 func TestFetchyr_CreateWorkflow(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"workflow_id": "wf-001",
-		"name":        "login_flow",
-		"steps":       []interface{}{map[string]interface{}{"action": "click", "selector": "#btn"}},
-		"url":         "https://example.com",
-		"created_at":  "2026-04-09T00:00:00Z",
-	}))
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST fetchyr/workflows": jsonHandler(201, map[string]interface{}{
+			"id": "wf-1", "name": "Login", "workflow_type": "form", "steps": []interface{}{},
+			"is_active": true, "created_at": "2026-10-27T00:00:00Z",
+		}),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	result, err := client.Fetchyr.CreateWorkflow(
-		context.Background(),
-		"login_flow",
-		[]map[string]interface{}{{"action": "click", "selector": "#btn"}},
-		"https://example.com",
-	)
+	result, err := newTestClient(server).Fetchyr.CreateWorkflow(context.Background(), "Login",
+		[]map[string]interface{}{{"action": "click"}}, &CreateWorkflowOptions{WorkflowType: "form"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.WorkflowID != "wf-001" {
-		t.Errorf("expected wf-001, got %s", result.WorkflowID)
+	if result.WorkflowID != "wf-1" || !result.IsActive {
+		t.Errorf("unexpected result: %+v", result)
+	}
+	if _, ok := rs.bodies["POST fetchyr/workflows"]["url"]; ok {
+		t.Error("url is not a field of the workflow request")
 	}
 }
 
-func TestFetchyr_ExecuteWorkflow(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"execution_id": "exec-001",
-		"workflow_id":  "wf-001",
-		"status":       "running",
-		"records":      []interface{}{},
-	}))
+func TestFetchyr_ExecuteWorkflow_SendsTargetURL(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST fetchyr/workflows/wf-1/execute": jsonHandler(202, map[string]interface{}{
+			"execution_id": "ex-1", "workflow_id": "wf-1", "status": "running",
+			"started_at": "2026-10-27T00:00:00Z", "result": map[string]interface{}{"k": "v"},
+		}),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	result, err := client.Fetchyr.ExecuteWorkflow(context.Background(), "wf-001")
+	result, err := newTestClient(server).Fetchyr.ExecuteWorkflow(context.Background(), "wf-1", "https://example.com", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Status != "running" {
-		t.Errorf("expected running, got %s", result.Status)
+	if result.ExecutionID != "ex-1" || result.Result["k"] != "v" {
+		t.Errorf("unexpected result: %+v", result)
 	}
-}
-
-func TestFetchyr_GetExecution(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"execution_id": "exec-001",
-		"workflow_id":  "wf-001",
-		"status":       "completed",
-		"records":      []interface{}{map[string]interface{}{"data": "value"}},
-	}))
-	defer server.Close()
-
-	client := newTestClient(server)
-	result, err := client.Fetchyr.GetExecution(context.Background(), "wf-001", "exec-001")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Status != "completed" {
-		t.Errorf("expected completed, got %s", result.Status)
+	if rs.bodies["POST fetchyr/workflows/wf-1/execute"]["target_url"] != "https://example.com" {
+		t.Error("target_url not sent")
 	}
 }
 
 func TestFetchyr_DetectForms(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"forms": []interface{}{
-			map[string]interface{}{"selector": "form#login", "confidence": float64(0.99)},
-		},
-		"total_forms": float64(1),
-	}))
+	_, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST fetchyr/form/detect": jsonHandler(200, map[string]interface{}{
+			"url": "https://example.com", "forms_found": float64(2), "login_form_detected": true,
+			"fields": []interface{}{map[string]interface{}{"name": "user"}},
+		}),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	result, err := client.Fetchyr.DetectForms(context.Background(), "https://example.com/login", "")
+	result, err := newTestClient(server).Fetchyr.DetectForms(context.Background(), "https://example.com", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.TotalForms != 1 {
-		t.Errorf("expected 1 form, got %d", result.TotalForms)
+	if result.FormsFound != 2 || !result.LoginFormDetected || len(result.Fields) != 1 {
+		t.Errorf("unexpected result: %+v", result)
 	}
 }
 
-func TestFetchyr_DetectMFA(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"mfa_detected": true,
-		"challenge_id": "chall-001",
-		"mfa_type":     "totp",
-	}))
+func TestFetchyr_ResolveMFA(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST fetchyr/mfa-queue/ch-1/resolve": jsonHandler(200, map[string]interface{}{"id": "ch-1", "status": "resolved"}),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	result, err := client.Fetchyr.DetectMFA(context.Background(), "https://example.com/mfa", "")
+	result, err := newTestClient(server).Fetchyr.ResolveMFA(context.Background(), "ch-1", "123456")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.MfaDetected {
-		t.Error("expected MfaDetected=true")
-	}
-	if result.MfaType == nil || *result.MfaType != "totp" {
-		t.Errorf("unexpected MfaType: %v", result.MfaType)
+	if result["status"] != "resolved" || rs.bodies["POST fetchyr/mfa-queue/ch-1/resolve"]["resolution"] != "123456" {
+		t.Errorf("unexpected: %v %v", result, rs.bodies)
 	}
 }
 
-func TestFetchyr_SubmitMFA(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"success":             true,
-		"session_artifact_id": "art-sess-002",
-	}))
+func TestFetchyr_CheckDuplicate(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST fetchyr/deduplication/check": jsonHandler(200, map[string]interface{}{
+			"is_duplicate": true, "original_url": "https://example.com/a", "similarity_score": 0.98,
+		}),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	result, err := client.Fetchyr.SubmitMFA(context.Background(), "chall-001", "123456")
+	result, err := newTestClient(server).Fetchyr.CheckDuplicate(context.Background(), "https://example.com/b",
+		&CheckDuplicateOptions{SessionID: "d1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Success {
-		t.Error("expected Success=true")
+	if !result.IsDuplicate || *result.OriginalURL != "https://example.com/a" || result.SimilarityScore != 0.98 {
+		t.Errorf("unexpected result: %+v", result)
 	}
-	if result.SessionArtifactID == nil || *result.SessionArtifactID != "art-sess-002" {
-		t.Errorf("unexpected SessionArtifactID: %v", result.SessionArtifactID)
+	if rs.bodies["POST fetchyr/deduplication/check"]["session_id"] != "d1" {
+		t.Error("session_id not sent")
 	}
 }
 
-func TestFetchyr_CheckDuplicates(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"unique_records":  []interface{}{map[string]interface{}{"id": "1"}},
-		"duplicate_count": float64(2),
-		"total_input":     float64(3),
-	}))
+func TestFetchyr_ListMFAChallenges_ArrayBody(t *testing.T) {
+	_, server := newRouteServer(map[string]http.HandlerFunc{
+		"GET fetchyr/mfa-queue": jsonHandler(200, []interface{}{map[string]interface{}{"id": "ch-1"}}),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	records := []map[string]interface{}{
-		{"id": "1"}, {"id": "2"}, {"id": "2"},
-	}
-	result, err := client.Fetchyr.CheckDuplicates(context.Background(), records, "example.com")
+	result, err := newTestClient(server).Fetchyr.ListMFAChallenges(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.DuplicateCount != 2 {
-		t.Errorf("expected 2 duplicates, got %d", result.DuplicateCount)
-	}
-	if result.TotalInput != 3 {
-		t.Errorf("expected 3 total, got %d", result.TotalInput)
+	items, _ := result["items"].([]interface{})
+	if len(items) != 1 {
+		t.Errorf("expected the array under items, got %v", result)
 	}
 }

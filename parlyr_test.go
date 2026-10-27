@@ -9,13 +9,13 @@ import (
 
 func TestParlyr_Parse(t *testing.T) {
 	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"intent":           "scrape_site",
-		"confidence":       float64(0.97),
-		"tier":             float64(1),
-		"source":           "fast_match",
-		"entities":         map[string]interface{}{"url": "https://example.com"},
-		"requires_action":  true,
-		"detected_url":     "https://example.com",
+		"intent":          "scrape_site",
+		"confidence":      float64(0.97),
+		"tier":            float64(1),
+		"source":          "fast_match",
+		"entities":        map[string]interface{}{"url": "https://example.com"},
+		"requires_action": true,
+		"detected_url":    "https://example.com",
 	}))
 	defer server.Close()
 

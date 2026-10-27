@@ -3,6 +3,7 @@ package kloakd
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -94,46 +95,27 @@ func TestEvadr_FetchAsync(t *testing.T) {
 	}
 }
 
-func TestEvadr_FetchStream(t *testing.T) {
-	server := httptest.NewServer(sseHandler([]map[string]interface{}{
-		{"type": "tier_start", "tier": float64(1), "vendor": nil, "metadata": map[string]interface{}{}},
-		{"type": "tier_complete", "tier": float64(1), "vendor": "cloudflare", "metadata": map[string]interface{}{}},
-		{"type": "done", "tier": float64(1), "vendor": "cloudflare", "metadata": map[string]interface{}{}},
-	}))
+func TestEvadr_FetchStream_StartsAJobAndStreamsItsEvents(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST evadr/fetch/async": jsonHandler(202, map[string]interface{}{"job_id": "job-9", "status": "pending", "message": "queued"}),
+		"GET evadr/jobs/job-9/events": sseHandler([]map[string]interface{}{
+			{"type": "tier_start", "tier": float64(1), "vendor": nil, "metadata": map[string]interface{}{}},
+			{"type": "tier_complete", "tier": float64(1), "vendor": "cloudflare", "metadata": map[string]interface{}{}},
+			{"type": "done", "tier": float64(1), "vendor": "cloudflare", "metadata": map[string]interface{}{}},
+		}),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	ch, err := client.Evadr.FetchStream(context.Background(), "https://example.com", nil)
+	ch, err := newTestClient(server).Evadr.FetchStream(context.Background(), "https://example.com", &FetchStreamOptions{ForceBrowser: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	events := drain(ch, 2*time.Second)
-	if len(events) != 3 {
-		t.Fatalf("expected 3 events, got %d", len(events))
+	if len(events) != 3 || events[0].Type != "tier_start" || events[1].Vendor == nil || *events[1].Vendor != "cloudflare" {
+		t.Fatalf("unexpected events: %+v", events)
 	}
-	if events[0].Type != "tier_start" {
-		t.Errorf("expected first event type=tier_start, got %s", events[0].Type)
-	}
-	if events[1].Vendor == nil || *events[1].Vendor != "cloudflare" {
-		t.Errorf("expected vendor=cloudflare in second event")
-	}
-}
-
-func TestEvadr_FetchStream_WithForceBrowser(t *testing.T) {
-	cap := &captureHandler{inner: sseHandler([]map[string]interface{}{
-		{"type": "done", "metadata": map[string]interface{}{}},
-	})}
-	server := httptest.NewServer(cap)
-	defer server.Close()
-
-	client := newTestClient(server)
-	ch, err := client.Evadr.FetchStream(context.Background(), "https://example.com", &FetchStreamOptions{ForceBrowser: true})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	drain(ch, time.Second)
-	if cap.lastBody["force_browser"] != true {
-		t.Error("expected force_browser=true in SSE body")
+	if rs.bodies["POST evadr/fetch/async"]["force_browser"] != true {
+		t.Error("expected force_browser=true on the async fetch")
 	}
 }
 

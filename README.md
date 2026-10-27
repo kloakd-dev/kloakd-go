@@ -44,7 +44,7 @@ func main() {
     }
     fmt.Printf("Fetched via tier %d\n", fetch.TierUsed)
 
-    // Site crawl (reuse fetch artifact)
+    // Site crawl (waits for the crawl, then returns every page)
     crawl, err := client.Webgrph.Crawl(ctx, "https://books.toscrape.com", &kloakd.CrawlOptions{
         MaxDepth: 2,
         MaxPages: 50,
@@ -52,8 +52,8 @@ func main() {
     fmt.Printf("Found %d pages\n", crawl.TotalPages)
 
     // Extract structured data
-    data, err := client.Kolektr.Page(ctx, "https://books.toscrape.com", &kloakd.PageOptions{
-        Schema: map[string]interface{}{
+    data, err := client.Kolektr.Extract(ctx, "https://books.toscrape.com", &kloakd.ExtractOptions{
+        SchemaSpec: map[string]interface{}{
             "title": "css:h3 a",
             "price": "css:p.price_color",
         },
@@ -83,10 +83,16 @@ client, err := kloakd.New(kloakd.Config{
 // Fetch a URL through anti-bot bypass
 result, err := client.Evadr.Fetch(ctx, url, nil)
 
+// Fetch answers within about 85 s. A slower site is handed off as a job
+// (HTTP 202); Fetch follows it to the result. Tune the wait:
+fetch, err = client.Evadr.Fetch(ctx, url, &kloakd.FetchOptions{
+    PollInterval: 3 * time.Second, PollTimeout: 15 * time.Minute,
+})
+
 // Async job
 jobID, err := client.Evadr.FetchAsync(ctx, url, nil)
 
-// SSE streaming
+// Stream a fetch's progress (starts an async job, streams its events)
 ch, err := client.Evadr.FetchStream(ctx, url, nil)
 for event := range ch {
     fmt.Println(event.Type, event.Tier)
@@ -99,39 +105,38 @@ analysis, err := client.Evadr.Analyze(ctx, url, nil)
 ### `client.Webgrph` — Site Mapping
 
 ```go
-// Crawl site hierarchy
+// Crawl a site: starts the crawl, waits for it, returns every page
 crawl, err := client.Webgrph.Crawl(ctx, url, &kloakd.CrawlOptions{MaxDepth: 3, MaxPages: 100})
 
-// Auto-paginate all pages
-pages, err := client.Webgrph.CrawlAll(ctx, url, nil)
+// Or start it and follow it yourself
+started, err := client.Webgrph.StartCrawl(ctx, url, nil)
+status, err := client.Webgrph.GetCrawlStatus(ctx, started.CrawlID)
 
-// SSE streaming
+// Stream a crawl's events
 ch, err := client.Webgrph.CrawlStream(ctx, url, nil)
 for event := range ch {
     fmt.Println(event.Type, event.URL)
 }
 ```
 
-### `client.Skanyr` — API Discovery
+### `client.Skanyr` — Site Knowledge
 
 ```go
-result, err := client.Skanyr.Discover(ctx, url, nil)
-endpoints, err := client.Skanyr.DiscoverAll(ctx, url, nil)
-
-ch, err := client.Skanyr.DiscoverStream(ctx, url, nil)
-for event := range ch {
-    fmt.Println(event.Type, event.EndpointURL)
-}
+site, err := client.Skanyr.CreateSiteFromCrawl(ctx, crawl.CrawlID)
+sync, err := client.Skanyr.Sync(ctx, siteID, &kloakd.SyncOptions{Policy: "changed"})
+hits, err := client.Skanyr.Search(ctx, "pricing", &kloakd.SearchOptions{SiteID: siteID})
 ```
+
+Detected APIs, the reader view and discovery sessions are on `client.Webgrph`.
 
 ### `client.Nexus` — Strategy Engine
 
 ```go
-perception, _ := client.Nexus.Analyze(ctx, url, nil)
-strategy, _   := client.Nexus.Synthesize(ctx, perception.PerceptionID, nil)
+page, _       := client.Evadr.Fetch(ctx, url, nil)
+perception, _ := client.Nexus.Analyze(ctx, url, *page.HTML, nil)
+strategy, _   := client.Nexus.Synthesize(ctx, url, *page.HTML, "product prices")
 verified, _   := client.Nexus.Verify(ctx, strategy.StrategyID)
-result, _     := client.Nexus.Execute(ctx, strategy.StrategyID, url)
-knowledge, _  := client.Nexus.Knowledge(ctx, result.ExecutionResultID)
+result, _     := client.Nexus.Execute(ctx, strategy.StrategyID, url, nil)
 ```
 
 ### `client.Parlyr` — Conversational NLP
@@ -152,19 +157,17 @@ for event := range ch {
 ### `client.Fetchyr` — RPA & Authentication
 
 ```go
-session, err := client.Fetchyr.Login(ctx, loginURL, "#user", "#pass", "u", "p", nil)
-page, err    := client.Fetchyr.Fetch(ctx, protectedURL, *session.ArtifactID, nil)
+_, err := client.Fetchyr.StoreCredentials(ctx, "my-login", map[string]interface{}{"username": "u", "password": "p"})
+session, err := client.Fetchyr.Authenticate(ctx, "my-login", loginURL)
+page, err    := client.Evadr.Fetch(ctx, protectedURL, &kloakd.FetchOptions{SessionArtifactID: *session.ArtifactID})
 ```
 
 ### `client.Kolektr` — Data Extraction
 
 ```go
-data, err := client.Kolektr.Page(ctx, url, &kloakd.PageOptions{
-    Schema: map[string]interface{}{"title": "css:h1", "price": "css:.price"},
+data, err := client.Kolektr.Extract(ctx, url, &kloakd.ExtractOptions{
+    SchemaSpec: map[string]interface{}{"title": "css:h1", "price": "css:.price"},
 })
-
-// Auto-paginate
-records, err := client.Kolektr.PageAll(ctx, url, nil)
 
 // From raw HTML
 data, err = client.Kolektr.ExtractHTML(ctx, html, url, nil)
@@ -178,8 +181,14 @@ import "errors"
 result, err := client.Evadr.Fetch(ctx, url, nil)
 if err != nil {
     var rlErr *kloakd.RateLimitError
+    var quotaErr *kloakd.QuotaExceededError
+    var payErr *kloakd.PaymentRequiredError
     var authErr *kloakd.AuthenticationError
     switch {
+    case errors.As(err, &quotaErr):
+        log.Printf("GB used up (%.1f of %.1f): buy a top-up", quotaErr.GBUsed, quotaErr.GBLimit)
+    case errors.As(err, &payErr):
+        log.Printf("payment failed: update it at %s", payErr.UpgradeURL)
     case errors.As(err, &rlErr):
         time.Sleep(time.Duration(rlErr.RetryAfter) * time.Second)
     case errors.As(err, &authErr):
@@ -190,15 +199,15 @@ if err != nil {
 }
 ```
 
-**Error types:** `KloakdError`, `AuthenticationError` (401), `NotEntitledError` (403), `RateLimitError` (429), `UpstreamError` (502), `ApiError` (other 4xx/5xx).
+**Error types:** `KloakdError` (with `Code`, the API's error word), `AuthenticationError` (401), `PaymentRequiredError` (402), `NotEntitledError` (403), `QuotaExceededError` (429 `gb_exhausted`), `RateLimitError` (429), `UpstreamError` (502), `BillingUnavailableError` (503 `billing_unavailable`), `ApiError` (other 4xx/5xx).
 
 ## Retry Policy
 
 - Retryable status codes: 429, 500, 502, 503, 504
 - Strategy: exponential backoff — `1s × 2^attempt`, capped at 60s
-- 429: respects `Retry-After` header / `retry_after` body field
-- Non-retryable: 400, 401, 403, 404
-- Default max retries: 3 (override via `Config.MaxRetries`)
+- 429 and 503: respect the `Retry-After` header / `retry_after` field
+- Not retried: 400, 401, 402, 403, 404, and 429 `gb_exhausted` (waiting does not clear it)
+- Default max retries: 3 (override via `Config.MaxRetries`; negative for none)
 
 ## Running the Quickstart
 

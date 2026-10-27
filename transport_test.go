@@ -106,10 +106,9 @@ func TestTransport_QueryParams(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server)
-	// GetHierarchy uses GET with path param, no query; test GET with params via skanyr.GetJob
-	_, _ = client.Webgrph.GetHierarchy(context.Background(), "art-001")
-	if !strings.Contains(capturedURL, "art-001") {
-		t.Errorf("expected URL to contain art-001, got %s", capturedURL)
+	_, _ = client.Webgrph.DetectedAPIs(context.Background(), "https://example.com/p")
+	if !strings.Contains(capturedURL, "webgrph/detected-apis?page_url=https%3A%2F%2Fexample.com%2Fp") {
+		t.Errorf("expected the page_url query, got %s", capturedURL)
 	}
 }
 

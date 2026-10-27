@@ -2,198 +2,124 @@ package kloakd
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 )
 
-var crawlResponse = map[string]interface{}{
-	"success":          true,
-	"crawl_id":         "crawl-001",
-	"url":              "https://example.com",
-	"total_pages":      float64(10),
-	"max_depth_reached": float64(2),
-	"pages": []interface{}{
-		map[string]interface{}{
-			"url":         "https://example.com",
-			"depth":       float64(0),
-			"title":       "Home",
-			"status_code": float64(200),
-			"children":    []interface{}{"https://example.com/about"},
-		},
-	},
-	"has_more":    false,
-	"total":       float64(10),
-	"artifact_id": "art-crawl-001",
-	"error":       nil,
-}
-
-func TestWebgrph_Crawl(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, crawlResponse))
-	defer server.Close()
-
-	client := newTestClient(server)
-	result, err := client.Webgrph.Crawl(context.Background(), "https://example.com", nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Success {
-		t.Error("expected Success=true")
-	}
-	if result.CrawlID != "crawl-001" {
-		t.Errorf("expected crawl_id=crawl-001, got %s", result.CrawlID)
-	}
-	if result.TotalPages != 10 {
-		t.Errorf("expected total_pages=10, got %d", result.TotalPages)
-	}
-	if len(result.Pages) != 1 {
-		t.Errorf("expected 1 page node, got %d", len(result.Pages))
-	}
-	if result.ArtifactID == nil || *result.ArtifactID != "art-crawl-001" {
-		t.Errorf("unexpected ArtifactID: %v", result.ArtifactID)
-	}
-}
-
-func TestWebgrph_Crawl_WithOptions(t *testing.T) {
-	cap := &captureHandler{inner: jsonHandler(200, crawlResponse)}
-	server := httptest.NewServer(cap)
-	defer server.Close()
-
-	client := newTestClient(server)
-	_, err := client.Webgrph.Crawl(context.Background(), "https://example.com", &CrawlOptions{
-		MaxDepth:          3,
-		MaxPages:          100,
-		SessionArtifactID: "sess-001",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cap.lastBody["max_depth"] != float64(3) {
-		t.Errorf("unexpected max_depth: %v", cap.lastBody["max_depth"])
-	}
-	if cap.lastBody["session_artifact_id"] != "sess-001" {
-		t.Errorf("unexpected session_artifact_id: %v", cap.lastBody["session_artifact_id"])
-	}
-}
-
-func TestWebgrph_CrawlAll_SinglePage(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, crawlResponse))
-	defer server.Close()
-
-	client := newTestClient(server)
-	pages, err := client.Webgrph.CrawlAll(context.Background(), "https://example.com", nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pages) != 1 {
-		t.Errorf("expected 1 page, got %d", len(pages))
-	}
-}
-
-func TestWebgrph_CrawlAll_Paginates(t *testing.T) {
+func crawlRoutes(statuses []string) map[string]http.HandlerFunc {
 	calls := 0
-	handler := jsonHandlerSeq([]interface{}{
-		map[string]interface{}{
-			"success": true, "crawl_id": "c1", "url": "https://example.com",
-			"total_pages": float64(2), "max_depth_reached": float64(1),
-			"pages": []interface{}{
-				map[string]interface{}{"url": "https://example.com/p1", "depth": float64(0), "children": []interface{}{}},
-			},
-			"has_more": true, "total": float64(2),
+	return map[string]http.HandlerFunc{
+		"POST webgrph/crawl": jsonHandler(202, map[string]interface{}{
+			"success": true, "crawl_id": "c1", "url": "https://example.com", "total_pages": float64(0), "max_depth_reached": float64(0),
+		}),
+		"GET webgrph/crawl/c1": func(w http.ResponseWriter, r *http.Request) {
+			state := statuses[calls]
+			if calls < len(statuses)-1 {
+				calls++
+			}
+			jsonHandler(200, map[string]interface{}{
+				"crawl_id": "c1", "status": state, "organization_id": testOrgID,
+				"total_pages": float64(3), "max_depth_reached": float64(1), "artifact_id": "art-c1",
+			})(w, r)
 		},
-		map[string]interface{}{
-			"success": true, "crawl_id": "c1", "url": "https://example.com",
-			"total_pages": float64(2), "max_depth_reached": float64(1),
-			"pages": []interface{}{
-				map[string]interface{}{"url": "https://example.com/p2", "depth": float64(1), "children": []interface{}{}},
-			},
-			"has_more": false, "total": float64(2),
+		"GET webgrph/crawl/c1/pages": func(w http.ResponseWriter, r *http.Request) {
+			node := func(u string) map[string]interface{} {
+				return map[string]interface{}{"id": u, "url": u, "depth": float64(1), "category": "page",
+					"children_urls": []interface{}{}, "metadata": map[string]interface{}{"title": "T " + u}}
+			}
+			if r.URL.Query().Get("cursor") == "" {
+				jsonHandler(200, map[string]interface{}{"crawl_id": "c1", "nodes": []interface{}{node("a"), node("b")},
+					"next_cursor": "2", "total": float64(3)})(w, r)
+				return
+			}
+			jsonHandler(200, map[string]interface{}{"crawl_id": "c1", "nodes": []interface{}{node("c")}, "total": float64(3)})(w, r)
 		},
-	}, &calls)
-	server := httptest.NewServer(handler)
+	}
+}
+
+func TestWebgrph_Crawl_WaitsAndCollectsEveryPage(t *testing.T) {
+	rs, server := newRouteServer(crawlRoutes([]string{"queued", "crawling", "completed"}))
 	defer server.Close()
 
-	client := newTestClient(server)
-	pages, err := client.Webgrph.CrawlAll(context.Background(), "https://example.com", nil)
+	result, err := newTestClient(server).Webgrph.Crawl(context.Background(), "https://example.com",
+		&CrawlOptions{MaxDepth: 2, MaxPages: 50, PollInterval: time.Millisecond})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(pages) != 2 {
-		t.Errorf("expected 2 pages, got %d", len(pages))
+	if !result.Success || result.CrawlID != "c1" || len(result.Pages) != 3 || result.Total != 3 {
+		t.Fatalf("unexpected result: %+v", result)
 	}
-	if calls != 2 {
-		t.Errorf("expected 2 API calls, got %d", calls)
+	if result.Pages[0].Title == nil || *result.Pages[0].Title != "T a" || *result.ArtifactID != "art-c1" {
+		t.Errorf("unexpected page: %+v", result.Pages[0])
+	}
+	if rs.bodies["POST webgrph/crawl"]["max_pages"] != float64(50) {
+		t.Errorf("unexpected body: %v", rs.bodies["POST webgrph/crawl"])
+	}
+}
+
+func TestWebgrph_Crawl_Failed(t *testing.T) {
+	_, server := newRouteServer(crawlRoutes([]string{"failed"}))
+	defer server.Close()
+
+	result, err := newTestClient(server).Webgrph.Crawl(context.Background(), "https://example.com",
+		&CrawlOptions{PollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success || result.Status != "failed" || len(result.Pages) != 0 {
+		t.Errorf("unexpected result: %+v", result)
+	}
+}
+
+func TestWebgrph_Crawl_TimesOut(t *testing.T) {
+	_, server := newRouteServer(crawlRoutes([]string{"crawling"}))
+	defer server.Close()
+
+	_, err := newTestClient(server).Webgrph.Crawl(context.Background(), "https://example.com",
+		&CrawlOptions{PollInterval: time.Millisecond, PollTimeout: 20 * time.Millisecond})
+	var apiErr *ApiError
+	if !errorsAs(err, &apiErr) || apiErr.Code != "crawl_timeout" {
+		t.Fatalf("expected crawl_timeout, got %v", err)
 	}
 }
 
 func TestWebgrph_CrawlStream(t *testing.T) {
-	server := httptest.NewServer(sseHandler([]map[string]interface{}{
+	routes := crawlRoutes([]string{"completed"})
+	routes["GET webgrph/crawl/c1/events"] = sseHandler([]map[string]interface{}{
 		{"type": "page_discovered", "url": "https://example.com/a", "depth": float64(1), "metadata": map[string]interface{}{}},
-		{"type": "complete", "pages_found": float64(5), "metadata": map[string]interface{}{}},
-	}))
+		{"type": "done", "metadata": map[string]interface{}{}},
+	})
+	_, server := newRouteServer(routes)
 	defer server.Close()
 
-	client := newTestClient(server)
-	ch, err := client.Webgrph.CrawlStream(context.Background(), "https://example.com", nil)
+	ch, err := newTestClient(server).Webgrph.CrawlStream(context.Background(), "https://example.com", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	events := drain(ch, 2*time.Second)
-	if len(events) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(events))
-	}
-	if events[0].Type != "page_discovered" {
-		t.Errorf("expected page_discovered, got %s", events[0].Type)
-	}
-	if events[0].URL == nil || *events[0].URL != "https://example.com/a" {
-		t.Errorf("unexpected URL in event: %v", events[0].URL)
+	if len(events) != 2 || events[0].Type != "page_discovered" {
+		t.Fatalf("unexpected events: %+v", events)
 	}
 }
 
-func TestWebgrph_GetHierarchy(t *testing.T) {
-	cap := &captureHandler{inner: jsonHandler(200, map[string]interface{}{"artifact_id": "art-001"})}
-	server := httptest.NewServer(cap)
+func TestWebgrph_SessionsMovedFromSkanyr(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"GET webgrph/sessions":          jsonHandler(200, []interface{}{map[string]interface{}{"id": "s1"}}),
+		"PATCH webgrph/sessions/s1/job": jsonHandler(200, map[string]interface{}{"id": "s1", "last_job_id": "j1"}),
+	})
 	defer server.Close()
-
 	client := newTestClient(server)
-	result, err := client.Webgrph.GetHierarchy(context.Background(), "art-001")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result["artifact_id"] != "art-001" {
-		t.Errorf("unexpected artifact_id: %v", result["artifact_id"])
-	}
-}
 
-func TestWebgrph_GetJob(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{"job_id": "job-001", "status": "running"}))
-	defer server.Close()
-
-	client := newTestClient(server)
-	result, err := client.Webgrph.GetJob(context.Background(), "job-001")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	list, err := client.Webgrph.ListSessions(context.Background(), true)
+	if err != nil || len(list["items"].([]interface{})) != 1 {
+		t.Fatalf("sessions: %v %v", list, err)
 	}
-	if result["status"] != "running" {
-		t.Errorf("unexpected status: %v", result["status"])
+	updated, err := client.Webgrph.UpdateSessionJob(context.Background(), "s1", "j1")
+	if err != nil || updated["last_job_id"] != "j1" {
+		t.Fatalf("update: %v %v", updated, err)
 	}
-}
-
-// jsonHandlerSeq returns sequential responses from a slice, advancing on each call.
-func jsonHandlerSeq(responses []interface{}, calls *int) *captureHandler {
-	return &captureHandler{
-		inner: func(w http.ResponseWriter, r *http.Request) {
-			idx := *calls
-			if idx >= len(responses) {
-				idx = len(responses) - 1
-			}
-			*calls = idx + 1
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(200)
-			b, _ := json.Marshal(responses[idx])
-			w.Write(b)
-		},
+	if len(rs.seen) != 2 {
+		t.Errorf("unexpected calls: %v", rs.seen)
 	}
 }

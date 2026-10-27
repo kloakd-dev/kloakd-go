@@ -11,81 +11,40 @@ type FetchyrNamespace struct {
 	t *transport
 }
 
-// LoginOptions configures optional parameters for Fetchyr.Login.
-type LoginOptions struct {
-	SubmitSelector    string
-	SuccessURLContains string
-}
-
-// Login performs an automated login and returns an authenticated session artifact.
-func (f *FetchyrNamespace) Login(
-	ctx context.Context,
-	targetURL, usernameSelector, passwordSelector, username, password string,
-	opts *LoginOptions,
-) (*SessionResult, error) {
-	body := map[string]interface{}{
-		"url":               targetURL,
-		"username_selector": usernameSelector,
-		"password_selector": passwordSelector,
-		"username":          username,
-		"password":          password,
-	}
-	if opts != nil {
-		if opts.SubmitSelector != "" {
-			body["submit_selector"] = opts.SubmitSelector
-		}
-		if opts.SuccessURLContains != "" {
-			body["success_url_contains"] = opts.SuccessURLContains
-		}
-	}
-
-	raw, err := f.t.post(ctx, "fetchyr/login", body)
+// Authenticate logs in to a site with credentials stored under
+// credentialName (StoreCredentials) and returns the authenticated session.
+// It replaces Login, whose route was removed: the API no longer takes
+// selectors or a password per call.
+func (f *FetchyrNamespace) Authenticate(ctx context.Context, credentialName, targetURL string) (*SessionResult, error) {
+	raw, err := f.t.post(ctx, "fetchyr/authenticate", map[string]interface{}{
+		"credential_name": credentialName,
+		"target_url":      targetURL,
+	})
 	if err != nil {
 		return nil, err
 	}
 	return parseSessionResult(raw), nil
 }
 
-// FetchyrFetchOptions configures optional parameters for Fetchyr.Fetch.
-type FetchyrFetchOptions struct {
-	WaitForSelector string
-	ExtractHTML     bool
-}
-
-// Fetch performs an authenticated fetch within an existing session.
-func (f *FetchyrNamespace) Fetch(
-	ctx context.Context,
-	targetURL, sessionArtifactID string,
-	opts *FetchyrFetchOptions,
-) (*FetchyrResult, error) {
-	body := map[string]interface{}{
-		"url":                 targetURL,
-		"session_artifact_id": sessionArtifactID,
-	}
-	if opts != nil {
-		if opts.WaitForSelector != "" {
-			body["wait_for_selector"] = opts.WaitForSelector
-		}
-		if opts.ExtractHTML {
-			body["extract_html"] = true
-		}
-	}
-
-	raw, err := f.t.post(ctx, "fetchyr/fetch", body)
-	if err != nil {
-		return nil, err
-	}
-	return parseFetchyrResult(raw), nil
+// CreateWorkflowOptions configures optional parameters for CreateWorkflow.
+type CreateWorkflowOptions struct {
+	Description  string
+	WorkflowType string
 }
 
 // CreateWorkflow creates a new RPA workflow.
-func (f *FetchyrNamespace) CreateWorkflow(ctx context.Context, name string, steps []map[string]interface{}, targetURL string) (*WorkflowResult, error) {
+func (f *FetchyrNamespace) CreateWorkflow(ctx context.Context, name string, steps []map[string]interface{}, opts *CreateWorkflowOptions) (*WorkflowResult, error) {
 	body := map[string]interface{}{
 		"name":  name,
 		"steps": steps,
 	}
-	if targetURL != "" {
-		body["url"] = targetURL
+	if opts != nil {
+		if opts.Description != "" {
+			body["description"] = opts.Description
+		}
+		if opts.WorkflowType != "" {
+			body["workflow_type"] = opts.WorkflowType
+		}
 	}
 
 	raw, err := f.t.post(ctx, "fetchyr/workflows", body)
@@ -95,9 +54,24 @@ func (f *FetchyrNamespace) CreateWorkflow(ctx context.Context, name string, step
 	return parseWorkflowResult(raw), nil
 }
 
-// ExecuteWorkflow triggers execution of a workflow by ID.
-func (f *FetchyrNamespace) ExecuteWorkflow(ctx context.Context, workflowID string) (*ExecutionResult, error) {
-	raw, err := f.t.post(ctx, fmt.Sprintf("fetchyr/workflows/%s/execute", workflowID), map[string]interface{}{})
+// ExecuteWorkflowOptions configures optional parameters for ExecuteWorkflow.
+type ExecuteWorkflowOptions struct {
+	SessionArtifactID string
+	InputData         map[string]interface{}
+}
+
+// ExecuteWorkflow runs a workflow against targetURL.
+func (f *FetchyrNamespace) ExecuteWorkflow(ctx context.Context, workflowID, targetURL string, opts *ExecuteWorkflowOptions) (*ExecutionResult, error) {
+	body := map[string]interface{}{"target_url": targetURL}
+	if opts != nil {
+		if opts.SessionArtifactID != "" {
+			body["session_artifact_id"] = opts.SessionArtifactID
+		}
+		if len(opts.InputData) > 0 {
+			body["input_data"] = opts.InputData
+		}
+	}
+	raw, err := f.t.post(ctx, fmt.Sprintf("fetchyr/workflows/%s/execute", workflowID), body)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +87,18 @@ func (f *FetchyrNamespace) GetExecution(ctx context.Context, workflowID, executi
 	return parseExecutionResult(raw), nil
 }
 
+// ResumeExecution resumes a paused execution (after MFA).
+func (f *FetchyrNamespace) ResumeExecution(ctx context.Context, workflowID, executionID string, resume map[string]interface{}) (*ExecutionResult, error) {
+	if resume == nil {
+		resume = map[string]interface{}{}
+	}
+	raw, err := f.t.post(ctx, fmt.Sprintf("fetchyr/workflows/%s/executions/%s/resume", workflowID, executionID), resume)
+	if err != nil {
+		return nil, err
+	}
+	return parseExecutionResult(raw), nil
+}
+
 // DetectForms detects forms on a page.
 func (f *FetchyrNamespace) DetectForms(ctx context.Context, targetURL string, sessionArtifactID string) (*FormDetectionResult, error) {
 	body := map[string]interface{}{"url": targetURL}
@@ -120,7 +106,7 @@ func (f *FetchyrNamespace) DetectForms(ctx context.Context, targetURL string, se
 		body["session_artifact_id"] = sessionArtifactID
 	}
 
-	raw, err := f.t.post(ctx, "fetchyr/forms/detect", body)
+	raw, err := f.t.post(ctx, "fetchyr/form/detect", body)
 	if err != nil {
 		return nil, err
 	}
@@ -141,16 +127,12 @@ func (f *FetchyrNamespace) DetectMFA(ctx context.Context, targetURL string, sess
 	return parseMfaDetectionResult(raw), nil
 }
 
-// SubmitMFA submits an MFA code for the given challenge ID.
-func (f *FetchyrNamespace) SubmitMFA(ctx context.Context, challengeID, code string) (*MfaResult, error) {
-	raw, err := f.t.post(ctx, "fetchyr/mfa/submit", map[string]interface{}{
-		"challenge_id": challengeID,
-		"code":         code,
+// ResolveMFA resolves a queued MFA challenge (the code, or "approved").
+// It replaces SubmitMFA, whose route was removed.
+func (f *FetchyrNamespace) ResolveMFA(ctx context.Context, challengeID, resolution string) (map[string]interface{}, error) {
+	return f.t.post(ctx, fmt.Sprintf("fetchyr/mfa-queue/%s/resolve", challengeID), map[string]interface{}{
+		"resolution": resolution,
 	})
-	if err != nil {
-		return nil, err
-	}
-	return parseMfaResult(raw), nil
 }
 
 // StoreCredentials stores login credentials securely.
@@ -179,9 +161,9 @@ func (f *FetchyrNamespace) TerminateSession(ctx context.Context, artifactID stri
 	return f.t.delete(ctx, fmt.Sprintf("fetchyr/sessions/%s", artifactID))
 }
 
-// FillForm fills and optionally submits a form on a page.
-func (f *FetchyrNamespace) FillForm(ctx context.Context, targetURL string, formData map[string]string, sessionArtifactID string, submit bool) (map[string]interface{}, error) {
-	body := map[string]interface{}{"url": targetURL, "form_data": formData, "submit": submit}
+// FillForm fills and submits a form on a page.
+func (f *FetchyrNamespace) FillForm(ctx context.Context, targetURL string, formData map[string]string, sessionArtifactID string) (map[string]interface{}, error) {
+	body := map[string]interface{}{"url": targetURL, "form_data": formData}
 	if sessionArtifactID != "" {
 		body["session_artifact_id"] = sessionArtifactID
 	}
@@ -229,19 +211,27 @@ func (f *FetchyrNamespace) GetWorkflowStatistics(ctx context.Context, workflowID
 }
 
 // CreateMultiSiteWorkflow creates a multi-site orchestration workflow.
-func (f *FetchyrNamespace) CreateMultiSiteWorkflow(ctx context.Context, sites []map[string]interface{}, name string) (map[string]interface{}, error) {
-	body := map[string]interface{}{"sites": sites}
-	if name != "" {
-		body["name"] = name
-	}
-	return f.t.post(ctx, "fetchyr/multi-site-workflows", body)
+func (f *FetchyrNamespace) CreateMultiSiteWorkflow(ctx context.Context, name string, sites []map[string]interface{}) (map[string]interface{}, error) {
+	return f.t.post(ctx, "fetchyr/multi-site-workflows", map[string]interface{}{"name": name, "sites": sites})
 }
 
-// CheckDuplicates deduplicates a list of records, optionally scoped to a domain.
-func (f *FetchyrNamespace) CheckDuplicates(ctx context.Context, records []map[string]interface{}, domain string) (*DeduplicationResult, error) {
-	body := map[string]interface{}{"records": records}
-	if domain != "" {
-		body["domain"] = domain
+// CheckDuplicateOptions configures optional parameters for CheckDuplicate.
+type CheckDuplicateOptions struct {
+	ContentHash string
+	SessionID   string
+}
+
+// CheckDuplicate reports whether a URL (or its content hash) was already
+// seen, within a deduplication session if given.
+func (f *FetchyrNamespace) CheckDuplicate(ctx context.Context, targetURL string, opts *CheckDuplicateOptions) (*DeduplicationResult, error) {
+	body := map[string]interface{}{"url": targetURL}
+	if opts != nil {
+		if opts.ContentHash != "" {
+			body["content_hash"] = opts.ContentHash
+		}
+		if opts.SessionID != "" {
+			body["session_id"] = opts.SessionID
+		}
 	}
 
 	raw, err := f.t.post(ctx, "fetchyr/deduplication/check", body)
@@ -276,39 +266,39 @@ func (f *FetchyrNamespace) GetDedupDomainStatistics(ctx context.Context, domain 
 	return f.t.get(ctx, fmt.Sprintf("fetchyr/deduplication/statistics/%s", domain), nil)
 }
 
+// DiscoverAuthChain starts discovering how a site authenticates.
+func (f *FetchyrNamespace) DiscoverAuthChain(ctx context.Context, targetURL string) (map[string]interface{}, error) {
+	return f.t.post(ctx, "fetchyr/auth-chain/discover", map[string]interface{}{"target_url": targetURL})
+}
+
+// GetAuthChainStatus gets an auth-chain discovery's status.
+func (f *FetchyrNamespace) GetAuthChainStatus(ctx context.Context, discoveryID string) (map[string]interface{}, error) {
+	return f.t.get(ctx, fmt.Sprintf("fetchyr/auth-chain/%s/status", discoveryID), nil)
+}
+
 // ─── parsers ─────────────────────────────────────────────────────────────────
 
 func parseSessionResult(raw map[string]interface{}) *SessionResult {
 	return &SessionResult{
-		Success:       boolField(raw, "success"),
-		SessionID:     strField(raw, "session_id"),
-		URL:           strField(raw, "url"),
-		ArtifactID:    optStrField(raw, "artifact_id"),
-		ScreenshotURL: optStrField(raw, "screenshot_url"),
-		Error:         optStrField(raw, "error"),
-	}
-}
-
-func parseFetchyrResult(raw map[string]interface{}) *FetchyrResult {
-	return &FetchyrResult{
-		Success:           boolField(raw, "success"),
-		URL:               strField(raw, "url"),
-		StatusCode:        intField(raw, "status_code"),
-		HTML:              optStrField(raw, "html"),
-		ArtifactID:        optStrField(raw, "artifact_id"),
-		SessionArtifactID: strField(raw, "session_artifact_id"),
-		Error:             optStrField(raw, "error"),
+		Success:      boolField(raw, "success"),
+		SessionID:    strField(raw, "session_id"),
+		ArtifactID:   optStrField(raw, "artifact_id"),
+		TargetDomain: optStrField(raw, "target_domain"),
+		AuthMethod:   optStrField(raw, "auth_method"),
+		Error:        optStrField(raw, "error"),
 	}
 }
 
 func parseWorkflowResult(raw map[string]interface{}) *WorkflowResult {
 	return &WorkflowResult{
-		WorkflowID: strField(raw, "workflow_id"),
-		Name:       strField(raw, "name"),
-		Steps:      sliceMapField(raw, "steps"),
-		URL:        optStrField(raw, "url"),
-		CreatedAt:  strField(raw, "created_at"),
-		Error:      optStrField(raw, "error"),
+		WorkflowID:   strField(raw, "id"),
+		Name:         strField(raw, "name"),
+		Description:  optStrField(raw, "description"),
+		WorkflowType: strField(raw, "workflow_type"),
+		Steps:        sliceMapField(raw, "steps"),
+		IsActive:     boolField(raw, "is_active"),
+		CreatedAt:    strField(raw, "created_at"),
+		Error:        optStrField(raw, "error"),
 	}
 }
 
@@ -319,16 +309,17 @@ func parseExecutionResult(raw map[string]interface{}) *ExecutionResult {
 		Status:      strField(raw, "status"),
 		StartedAt:   optStrField(raw, "started_at"),
 		CompletedAt: optStrField(raw, "completed_at"),
-		Records:     sliceMapField(raw, "records"),
+		Result:      mapField(raw, "result"),
 		Error:       optStrField(raw, "error"),
 	}
 }
 
 func parseFormDetectionResult(raw map[string]interface{}) *FormDetectionResult {
 	return &FormDetectionResult{
-		Forms:      sliceMapField(raw, "forms"),
-		TotalForms: intField(raw, "total_forms"),
-		Error:      optStrField(raw, "error"),
+		URL:               strField(raw, "url"),
+		FormsFound:        intField(raw, "forms_found"),
+		LoginFormDetected: boolField(raw, "login_form_detected"),
+		Fields:            sliceMapField(raw, "fields"),
 	}
 }
 
@@ -337,23 +328,15 @@ func parseMfaDetectionResult(raw map[string]interface{}) *MfaDetectionResult {
 		MfaDetected: boolField(raw, "mfa_detected"),
 		ChallengeID: optStrField(raw, "challenge_id"),
 		MfaType:     optStrField(raw, "mfa_type"),
-		Error:       optStrField(raw, "error"),
-	}
-}
-
-func parseMfaResult(raw map[string]interface{}) *MfaResult {
-	return &MfaResult{
-		Success:           boolField(raw, "success"),
-		SessionArtifactID: optStrField(raw, "session_artifact_id"),
-		Error:             optStrField(raw, "error"),
+		Message:     optStrField(raw, "message"),
 	}
 }
 
 func parseDeduplicationResult(raw map[string]interface{}) *DeduplicationResult {
 	return &DeduplicationResult{
-		UniqueRecords:  sliceMapField(raw, "unique_records"),
-		DuplicateCount: intField(raw, "duplicate_count"),
-		TotalInput:     intField(raw, "total_input"),
-		Error:          optStrField(raw, "error"),
+		IsDuplicate:     boolField(raw, "is_duplicate"),
+		OriginalURL:     optStrField(raw, "original_url"),
+		SimilarityScore: float64Field(raw, "similarity_score"),
+		MatchType:       optStrField(raw, "match_type"),
 	}
 }

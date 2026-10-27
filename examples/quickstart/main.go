@@ -40,11 +40,8 @@ func main() {
 	}
 	fmt.Printf("Fetched via tier %d, anti-bot bypassed=%s\n", fetch.TierUsed, bypassed)
 
-	// Step 2: Site hierarchy (reuse Evadr artifact)
+	// Step 2: Site hierarchy (Crawl waits for the crawl and returns its pages)
 	crawlOpts := &kloakd.CrawlOptions{MaxDepth: 2, MaxPages: 50}
-	if fetch.ArtifactID != nil {
-		crawlOpts.SessionArtifactID = *fetch.ArtifactID
-	}
 	crawl, err := client.Webgrph.Crawl(ctx, targetURL, crawlOpts)
 	if err != nil {
 		log.Fatalf("webgrph.Crawl: %v", err)
@@ -52,8 +49,8 @@ func main() {
 	fmt.Printf("Found %d pages\n", crawl.TotalPages)
 
 	// Step 3: Extract structured data (reuse Evadr artifact)
-	pageOpts := &kloakd.PageOptions{
-		Schema: map[string]interface{}{
+	pageOpts := &kloakd.ExtractOptions{
+		SchemaSpec: map[string]interface{}{
 			"title": "css:h3 a",
 			"price": "css:p.price_color",
 		},
@@ -61,9 +58,9 @@ func main() {
 	if fetch.ArtifactID != nil {
 		pageOpts.FetchArtifactID = *fetch.ArtifactID
 	}
-	data, err := client.Kolektr.Page(ctx, targetURL, pageOpts)
+	data, err := client.Kolektr.Extract(ctx, targetURL, pageOpts)
 	if err != nil {
-		log.Fatalf("kolektr.Page: %v", err)
+		log.Fatalf("kolektr.Extract: %v", err)
 	}
 	fmt.Printf("Extracted %d records\n", data.TotalRecords)
 

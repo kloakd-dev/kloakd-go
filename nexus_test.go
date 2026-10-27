@@ -2,145 +2,82 @@ package kloakd
 
 import (
 	"context"
-	"net/http/httptest"
+	"net/http"
 	"testing"
 )
 
-func TestNexus_Analyze(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"perception_id":    "perc-001",
-		"strategy":         map[string]interface{}{"type": "css"},
-		"page_type":        "listing",
-		"complexity_level": "medium",
-		"artifact_id":      "art-nexus-001",
-		"duration_ms":      float64(120),
-	}))
-	defer server.Close()
-
-	client := newTestClient(server)
-	result, err := client.Nexus.Analyze(context.Background(), "https://example.com", nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.PerceptionID != "perc-001" {
-		t.Errorf("expected perc-001, got %s", result.PerceptionID)
-	}
-	if result.PageType != "listing" {
-		t.Errorf("expected listing, got %s", result.PageType)
-	}
-	if result.DurationMs != 120 {
-		t.Errorf("expected 120ms, got %d", result.DurationMs)
-	}
-}
-
-func TestNexus_Analyze_WithOptions(t *testing.T) {
-	cap := &captureHandler{inner: jsonHandler(200, map[string]interface{}{
-		"perception_id": "perc-002", "strategy": map[string]interface{}{},
-		"page_type": "detail", "complexity_level": "low", "duration_ms": float64(80),
-	})}
-	server := httptest.NewServer(cap)
-	defer server.Close()
-
-	client := newTestClient(server)
-	_, err := client.Nexus.Analyze(context.Background(), "https://example.com", &NexusAnalyzeOptions{
-		HTML:        "<html>test</html>",
-		Constraints: map[string]interface{}{"max_selectors": 10},
+func TestNexus_Analyze_SendsHTML(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST nexus/analyze": jsonHandler(200, map[string]interface{}{
+			"url": "https://example.com", "page_type": "listing", "confidence": 0.9,
+			"strategy": map[string]interface{}{"type": "css"}, "perception_id": "p1", "reasoning_id": "r1",
+			"artifact": map[string]interface{}{"artifact_id": "art-n"},
+		}),
 	})
+	defer server.Close()
+
+	result, err := newTestClient(server).Nexus.Analyze(context.Background(), "https://example.com", "<html/>", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cap.lastBody["html"] != "<html>test</html>" {
-		t.Errorf("unexpected html: %v", cap.lastBody["html"])
+	if result.PageType != "listing" || result.Confidence != 0.9 || result.PerceptionID != "p1" || *result.ArtifactID != "art-n" {
+		t.Errorf("unexpected result: %+v", result)
+	}
+	if rs.bodies["POST nexus/analyze"]["html"] != "<html/>" {
+		t.Error("html not sent")
 	}
 }
 
 func TestNexus_Synthesize(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"strategy_id":       "strat-001",
-		"strategy_name":     "css_extractor",
-		"generated_code":    "return document.querySelectorAll('h1')",
-		"artifact_id":       "art-strat-001",
-		"synthesis_time_ms": float64(250),
-	}))
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST nexus/synthesize": jsonHandler(200, map[string]interface{}{
+			"url": "https://example.com", "goal": "prices", "program": "extract(...)",
+			"strategy_id": "st-1", "strategy_name": "css", "synthesis_time_ms": float64(40),
+		}),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	result, err := client.Nexus.Synthesize(context.Background(), "perc-001", nil)
+	result, err := newTestClient(server).Nexus.Synthesize(context.Background(), "https://example.com", "<html/>", "prices")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.StrategyID != "strat-001" {
-		t.Errorf("expected strat-001, got %s", result.StrategyID)
+	if result.StrategyID != "st-1" || result.Program != "extract(...)" || result.SynthesisTimeMs != 40 {
+		t.Errorf("unexpected result: %+v", result)
 	}
-	if result.SynthesisTimeMs != 250 {
-		t.Errorf("expected 250ms, got %d", result.SynthesisTimeMs)
+	body := rs.bodies["POST nexus/synthesize"]
+	if body["goal"] != "prices" || body["html"] != "<html/>" {
+		t.Errorf("unexpected body: %v", body)
 	}
 }
 
-func TestNexus_Verify(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"verification_result_id": "verify-001",
-		"is_safe":                true,
-		"risk_score":             float64(0.1),
-		"safety_score":           float64(0.95),
-		"violations":             []interface{}{},
-		"duration_ms":            float64(45),
-	}))
+func TestNexus_VerifyExecuteKnowledge(t *testing.T) {
+	_, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST nexus/verify": jsonHandler(200, map[string]interface{}{
+			"strategy_id": "st-1", "verified": true, "safety_score": 0.95, "violations": []interface{}{},
+		}),
+		"POST nexus/execute": jsonHandler(200, map[string]interface{}{
+			"url": "https://example.com", "strategy_id": "st-1", "success": true,
+			"records": []interface{}{map[string]interface{}{"a": 1}}, "duration_ms": float64(12),
+		}),
+		"POST nexus/knowledge": jsonHandler(200, map[string]interface{}{
+			"execution_result_id": "ex-1", "learned_concepts": []interface{}{}, "patterns": []interface{}{map[string]interface{}{}},
+			"total_patterns": float64(1),
+		}),
+	})
 	defer server.Close()
-
 	client := newTestClient(server)
-	result, err := client.Nexus.Verify(context.Background(), "strat-001")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.IsSafe {
-		t.Error("expected IsSafe=true")
-	}
-	if result.RiskScore != 0.1 {
-		t.Errorf("expected RiskScore=0.1, got %f", result.RiskScore)
-	}
-}
+	ctx := context.Background()
 
-func TestNexus_Execute(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"execution_result_id": "exec-001",
-		"success":             true,
-		"records":             []interface{}{map[string]interface{}{"title": "Product A", "price": "$10"}},
-		"artifact_id":         "art-exec-001",
-		"duration_ms":         float64(800),
-	}))
-	defer server.Close()
-
-	client := newTestClient(server)
-	result, err := client.Nexus.Execute(context.Background(), "strat-001", "https://example.com")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	verify, err := client.Nexus.Verify(ctx, "st-1")
+	if err != nil || !verify.Verified || verify.SafetyScore != 0.95 {
+		t.Fatalf("verify: %+v %v", verify, err)
 	}
-	if result.ExecutionResultID != "exec-001" {
-		t.Errorf("expected exec-001, got %s", result.ExecutionResultID)
+	exec, err := client.Nexus.Execute(ctx, "st-1", "https://example.com", nil)
+	if err != nil || !exec.Success || len(exec.Records) != 1 || exec.DurationMs != 12 {
+		t.Fatalf("execute: %+v %v", exec, err)
 	}
-	if len(result.Records) != 1 {
-		t.Errorf("expected 1 record, got %d", len(result.Records))
-	}
-}
-
-func TestNexus_Knowledge(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"learned_concepts": []interface{}{map[string]interface{}{"name": "product_listing"}},
-		"learned_patterns": []interface{}{map[string]interface{}{"selector": "h3 a"}},
-		"duration_ms":      float64(60),
-	}))
-	defer server.Close()
-
-	client := newTestClient(server)
-	result, err := client.Nexus.Knowledge(context.Background(), "exec-001")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.LearnedConcepts) != 1 {
-		t.Errorf("expected 1 concept, got %d", len(result.LearnedConcepts))
-	}
-	if len(result.LearnedPatterns) != 1 {
-		t.Errorf("expected 1 pattern, got %d", len(result.LearnedPatterns))
+	knowledge, err := client.Nexus.Knowledge(ctx, "ex-1")
+	if err != nil || knowledge.TotalPatterns != 1 || len(knowledge.Patterns) != 1 {
+		t.Fatalf("knowledge: %+v %v", knowledge, err)
 	}
 }

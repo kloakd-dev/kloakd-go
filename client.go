@@ -21,7 +21,7 @@ type Config struct {
 	Timeout time.Duration
 
 	// MaxRetries sets the number of retry attempts for retryable errors.
-	// 0 means one attempt (no retries). Defaults to 3.
+	// 0 (unset) means the default, 3; a negative value means no retries.
 	MaxRetries int
 
 	// HTTPClient allows injecting a custom *http.Client (e.g. for testing).
@@ -43,6 +43,9 @@ func (c Config) effectiveTimeout() time.Duration {
 }
 
 func (c Config) effectiveMaxRetries() int {
+	if c.MaxRetries < 0 {
+		return 0
+	}
 	if c.MaxRetries > 0 {
 		return c.MaxRetries
 	}

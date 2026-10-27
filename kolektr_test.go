@@ -2,7 +2,7 @@ package kloakd
 
 import (
 	"context"
-	"net/http/httptest"
+	"net/http"
 	"testing"
 )
 
@@ -13,108 +13,63 @@ var extractionResponse = map[string]interface{}{
 	"records":       []interface{}{map[string]interface{}{"title": "Book A", "price": "$10"}},
 	"total_records": float64(1),
 	"pages_scraped": float64(1),
-	"has_more":      false,
-	"total":         float64(1),
-	"artifact_id":   "art-ext-001",
-	"job_id":        nil,
-	"error":         nil,
+	"artifact":      map[string]interface{}{"artifact_id": "art-ext-001"},
 }
 
-func TestKolektr_Page(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, extractionResponse))
+func TestKolektr_Extract(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST kolektr/extract": jsonHandler(200, extractionResponse),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	result, err := client.Kolektr.Page(context.Background(), "https://example.com", nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Success {
-		t.Error("expected Success=true")
-	}
-	if result.Method != "l1_css" {
-		t.Errorf("expected method=l1_css, got %s", result.Method)
-	}
-	if result.TotalRecords != 1 {
-		t.Errorf("expected 1 record, got %d", result.TotalRecords)
-	}
-	if result.ArtifactID == nil || *result.ArtifactID != "art-ext-001" {
-		t.Errorf("unexpected ArtifactID: %v", result.ArtifactID)
-	}
-}
-
-func TestKolektr_Page_WithSchema(t *testing.T) {
-	cap := &captureHandler{inner: jsonHandler(200, extractionResponse)}
-	server := httptest.NewServer(cap)
-	defer server.Close()
-
-	client := newTestClient(server)
-	_, err := client.Kolektr.Page(context.Background(), "https://example.com", &PageOptions{
-		Schema: map[string]interface{}{
-			"title": "css:h3 a",
-			"price": "css:p.price_color",
-		},
-		FetchArtifactID: "art-fetch-001",
+	result, err := newTestClient(server).Kolektr.Extract(context.Background(), "https://example.com", &ExtractOptions{
+		SchemaSpec:      map[string]interface{}{"title": "css:h3"},
+		FetchArtifactID: "art-fetch-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := cap.lastBody["schema"]; !ok {
-		t.Error("expected schema in request body")
+	if result.TotalRecords != 1 || len(result.Records) != 1 || *result.ArtifactID != "art-ext-001" {
+		t.Errorf("unexpected result: %+v", result)
 	}
-	if cap.lastBody["fetch_artifact_id"] != "art-fetch-001" {
-		t.Errorf("unexpected fetch_artifact_id: %v", cap.lastBody["fetch_artifact_id"])
+	body := rs.bodies["POST kolektr/extract"]
+	if body["schema_spec"] == nil || body["fetch_artifact_id"] != "art-fetch-1" {
+		t.Errorf("unexpected body: %v", body)
+	}
+	if _, ok := body["schema"]; ok {
+		t.Error("schema is not a field of the request (schema_spec is)")
 	}
 }
 
-func TestKolektr_PageAll_SinglePage(t *testing.T) {
-	server := httptest.NewServer(jsonHandler(200, extractionResponse))
+func TestKolektr_Page_IsExtract(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST kolektr/extract": jsonHandler(200, extractionResponse),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	records, err := client.Kolektr.PageAll(context.Background(), "https://example.com", nil)
-	if err != nil {
+	if _, err := newTestClient(server).Kolektr.Page(context.Background(), "https://example.com", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(records) != 1 {
-		t.Errorf("expected 1 record, got %d", len(records))
-	}
-	if records[0]["title"] != "Book A" {
-		t.Errorf("unexpected title: %v", records[0]["title"])
+	if len(rs.seen) != 1 || rs.seen[0] != "POST kolektr/extract" {
+		t.Errorf("unexpected calls: %v", rs.seen)
 	}
 }
 
 func TestKolektr_ExtractHTML(t *testing.T) {
-	cap := &captureHandler{inner: jsonHandler(200, map[string]interface{}{
-		"success":       true,
-		"url":           "https://example.com",
-		"method":        "l1_css",
-		"records":       []interface{}{map[string]interface{}{"price": "$12"}},
-		"total_records": float64(1),
-		"pages_scraped": float64(0),
-		"has_more":      false,
-		"total":         float64(1),
-	})}
-	server := httptest.NewServer(cap)
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST kolektr/extract/html": jsonHandler(200, extractionResponse),
+	})
 	defer server.Close()
 
-	client := newTestClient(server)
-	result, err := client.Kolektr.ExtractHTML(
-		context.Background(),
-		"<html><p class='price'>$12</p></html>",
-		"https://example.com",
-		&ExtractHTMLOptions{Schema: map[string]interface{}{"price": "css:p.price"}},
-	)
+	result, err := newTestClient(server).Kolektr.ExtractHTML(context.Background(), "<html></html>", "https://example.com",
+		&ExtractHTMLOptions{SchemaSpec: map[string]interface{}{"title": "css:h1"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.TotalRecords != 1 {
-		t.Errorf("expected 1 record, got %d", result.TotalRecords)
+	if !result.Success {
+		t.Error("expected Success")
 	}
-	if cap.lastBody["html"] == "" {
-		t.Error("expected html in request body")
-	}
-	if cap.lastBody["url"] != "https://example.com" {
-		t.Errorf("unexpected url: %v", cap.lastBody["url"])
+	if rs.bodies["POST kolektr/extract/html"]["schema_spec"] == nil {
+		t.Error("schema_spec not sent")
 	}
 }
