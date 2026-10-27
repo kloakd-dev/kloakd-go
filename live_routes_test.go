@@ -194,8 +194,8 @@ func liveRoutes(t *testing.T) map[string]bool {
 
 func TestContract_EverySDKCallIsALiveRoute(t *testing.T) {
 	live := liveRoutes(t)
-	call := regexp.MustCompile(`\.t\.(get|post|put|patch|delete|stream|streamWithEvents|getStream|do|request)\(ctx,\s*(?:http\.Method(\w+),\s*)?(?:fmt\.Sprintf\()?"([^"]+)"`)
-	verbs := map[string]string{"get": "GET", "post": "POST", "put": "PUT", "patch": "PATCH", "delete": "DELETE",
+	call := regexp.MustCompile(`\.t\.(get|post|postFollowing|put|patch|delete|stream|streamWithEvents|getStream|do|request)\(ctx,\s*(?:http\.Method(\w+),\s*)?(?:fmt\.Sprintf\()?"([^"]+)"`)
+	verbs := map[string]string{"get": "GET", "post": "POST", "postFollowing": "POST", "put": "PUT", "patch": "PATCH", "delete": "DELETE",
 		"stream": "POST", "streamWithEvents": "POST", "getStream": "GET"}
 	files, _ := filepath.Glob("*.go")
 	found := 0
@@ -224,5 +224,32 @@ func TestContract_EverySDKCallIsALiveRoute(t *testing.T) {
 	}
 	if found < 100 {
 		t.Fatalf("found only %d calls; the scan is broken", found)
+	}
+}
+
+// 0.4.0: the nexus/recommendations routes and POST kolektr/jobs are deleted
+// from the API (they returned invented results); the hand-off poll route is new.
+func TestContract_DeletedRoutesAreGoneAndTheHandOffPollIsLive(t *testing.T) {
+	live := liveRoutes(t)
+	if !live["GET handoff/{}"] {
+		t.Error("GET handoff/{job_id} missing from testdata/routes.tsv")
+	}
+	if live["POST kolektr/jobs"] {
+		t.Error("POST kolektr/jobs is deleted but still in testdata/routes.tsv")
+	}
+	for key := range live {
+		if strings.Contains(key, " nexus/recommendations/") {
+			t.Errorf("%s is deleted but still in testdata/routes.tsv", key)
+		}
+	}
+	files, _ := filepath.Glob("*.go")
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		src, _ := os.ReadFile(file)
+		if strings.Contains(string(src), "nexus/recommendations") || strings.Contains(string(src), `post(ctx, "kolektr/jobs"`) {
+			t.Errorf("%s still calls a deleted route", file)
+		}
 	}
 }

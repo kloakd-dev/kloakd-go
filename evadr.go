@@ -3,15 +3,8 @@ package kloakd
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strconv"
 	"time"
-)
-
-// Defaults for following a fetch that the API hands off as a job.
-const (
-	DefaultFetchPollInterval = 3 * time.Second
-	DefaultFetchPollTimeout  = 15 * time.Minute
 )
 
 // EvadrNamespace exposes the Anti-Bot Intelligence module.
@@ -25,15 +18,15 @@ type FetchOptions struct {
 	ForceBrowser      bool
 	UseProxy          bool
 	SessionArtifactID string
-	// PollInterval and PollTimeout govern following a fetch the API hands
-	// off as a job (HTTP 202, after about 85 s). Defaults 3 s and 15 min;
-	// ctx cancellation also stops the wait.
+	// PollInterval and PollTimeout override Config.PollInterval /
+	// PollTimeout for following a fetch the API hands off as a job (HTTP
+	// 202, after about 85 s); ctx cancellation also stops the wait.
 	PollInterval time.Duration
 	PollTimeout  time.Duration
 }
 
-// HandedOff describes a 202 from the synchronous fetch: still running,
-// continuing as the job JobID.
+// HandedOff describes a 202 from a synchronous route: still running,
+// continuing as the job JobID, whose state is at PollURL.
 type HandedOff struct {
 	JobID         string
 	Reason        string
@@ -56,56 +49,15 @@ func (e *EvadrNamespace) Fetch(ctx context.Context, targetURL string, opts *Fetc
 		}
 	}
 
-	status, raw, err := e.t.do(ctx, http.MethodPost, "evadr/fetch", body, nil)
+	var poll *PollOptions
+	if opts != nil {
+		poll = &PollOptions{Interval: opts.PollInterval, Timeout: opts.PollTimeout}
+	}
+	raw, err := e.t.postFollowing(ctx, "evadr/fetch", body, poll)
 	if err != nil {
 		return nil, err
 	}
-	if status == http.StatusAccepted {
-		if jobID, _ := raw["job_id"].(string); jobID != "" {
-			return e.followJob(ctx, jobID, opts)
-		}
-	}
 	return parseFetchResult(raw), nil
-}
-
-// followJob polls a handed-off fetch until it completes or fails.
-func (e *EvadrNamespace) followJob(ctx context.Context, jobID string, opts *FetchOptions) (*FetchResult, error) {
-	interval, limit := DefaultFetchPollInterval, DefaultFetchPollTimeout
-	if opts != nil {
-		if opts.PollInterval > 0 {
-			interval = opts.PollInterval
-		}
-		if opts.PollTimeout > 0 {
-			limit = opts.PollTimeout
-		}
-	}
-	deadline := time.Now().Add(limit)
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(interval):
-		}
-		job, err := e.t.get(ctx, fmt.Sprintf("evadr/jobs/%s", jobID), nil)
-		if err != nil {
-			return nil, err
-		}
-		switch strField(job, "status") {
-		case "completed":
-			return parseFetchResult(mapField(job, "result")), nil
-		case "failed":
-			msg := strField(job, "error")
-			if msg == "" {
-				msg = "fetch job failed"
-			}
-			return nil, &ApiError{KloakdError: KloakdError{StatusCode: 200, Message: msg, Code: "job_failed"}}
-		}
-		if time.Now().After(deadline) {
-			return nil, &ApiError{KloakdError: KloakdError{
-				Message: fmt.Sprintf("fetch job %s still running after %s", jobID, limit), Code: "job_timeout",
-			}}
-		}
-	}
 }
 
 // FetchAsyncOptions configures optional parameters for Evadr.FetchAsync.

@@ -10,7 +10,6 @@ DELETE	/api/v1/organizations/{organization_id}/jobs/{job_id}
 DELETE	/api/v1/organizations/{organization_id}/kolektr/content/{item_id}
 DELETE	/api/v1/organizations/{organization_id}/kolektr/scrapers/{scraper_id}
 DELETE	/api/v1/organizations/{organization_id}/members/{user_id}
-DELETE	/api/v1/organizations/{organization_id}/nexus/recommendations/preferences/{preference_id}
 DELETE	/api/v1/organizations/{organization_id}/parlyr/chat/{session_id}
 DELETE	/api/v1/organizations/{organization_id}/performance/queue/request/{request_id}
 DELETE	/api/v1/organizations/{organization_id}/recommendations/preferences/{preference_id}
@@ -62,6 +61,7 @@ GET	/api/v1/organizations/{organization_id}/fetchyr/workflows
 GET	/api/v1/organizations/{organization_id}/fetchyr/workflows/{workflow_id}
 GET	/api/v1/organizations/{organization_id}/fetchyr/workflows/{workflow_id}/executions/{execution_id}
 GET	/api/v1/organizations/{organization_id}/fetchyr/workflows/{workflow_id}/statistics
+GET	/api/v1/organizations/{organization_id}/handoff/{job_id}
 GET	/api/v1/organizations/{organization_id}/integrations
 GET	/api/v1/organizations/{organization_id}/integrations/providers
 GET	/api/v1/organizations/{organization_id}/integrations/providers/{provider_name}
@@ -106,11 +106,6 @@ GET	/api/v1/organizations/{organization_id}/monitoring/gap-features
 GET	/api/v1/organizations/{organization_id}/monitoring/health
 GET	/api/v1/organizations/{organization_id}/monitoring/performance
 GET	/api/v1/organizations/{organization_id}/monitoring/statistics
-GET	/api/v1/organizations/{organization_id}/nexus/recommendations/applications
-GET	/api/v1/organizations/{organization_id}/nexus/recommendations/cache/statistics
-GET	/api/v1/organizations/{organization_id}/nexus/recommendations/hooks/status
-GET	/api/v1/organizations/{organization_id}/nexus/recommendations/preferences/{user_id}
-GET	/api/v1/organizations/{organization_id}/nexus/recommendations/statistics
 GET	/api/v1/organizations/{organization_id}/parlyr/chat/{session_id}/events
 GET	/api/v1/organizations/{organization_id}/performance/cache/stats
 GET	/api/v1/organizations/{organization_id}/performance/health
@@ -252,19 +247,12 @@ POST	/api/v1/organizations/{organization_id}/jobs/{job_id}/restart
 POST	/api/v1/organizations/{organization_id}/kolektr/api-data/{api_endpoint}/extract-all
 POST	/api/v1/organizations/{organization_id}/kolektr/extract
 POST	/api/v1/organizations/{organization_id}/kolektr/extract/html
-POST	/api/v1/organizations/{organization_id}/kolektr/jobs
 POST	/api/v1/organizations/{organization_id}/kolektr/scrapers
 POST	/api/v1/organizations/{organization_id}/members
 POST	/api/v1/organizations/{organization_id}/nexus/analyze
 POST	/api/v1/organizations/{organization_id}/nexus/execute
 POST	/api/v1/organizations/{organization_id}/nexus/knowledge
 POST	/api/v1/organizations/{organization_id}/nexus/reason
-POST	/api/v1/organizations/{organization_id}/nexus/recommendations/analyze
-POST	/api/v1/organizations/{organization_id}/nexus/recommendations/cache/cleanup
-POST	/api/v1/organizations/{organization_id}/nexus/recommendations/cache/invalidate
-POST	/api/v1/organizations/{organization_id}/nexus/recommendations/hooks/{hook_name}/disable
-POST	/api/v1/organizations/{organization_id}/nexus/recommendations/hooks/{hook_name}/enable
-POST	/api/v1/organizations/{organization_id}/nexus/recommendations/preferences
 POST	/api/v1/organizations/{organization_id}/nexus/synthesize
 POST	/api/v1/organizations/{organization_id}/nexus/verify
 POST	/api/v1/organizations/{organization_id}/parlyr/chat
@@ -300,7 +288,6 @@ POST	/api/v1/organizations/{organization_id}/workspaces/{workspace_id}/members
 POST	/api/v1/playground/feedback
 PUT	/api/v1/organizations/{organization_id}/integrations/{integration_id}
 PUT	/api/v1/organizations/{organization_id}/integrations/{integration_id}/credentials
-PUT	/api/v1/organizations/{organization_id}/nexus/recommendations/preferences/{preference_id}
 PUT	/api/v1/organizations/{organization_id}/recommendations/preferences/{preference_id}
 PUT	/api/v1/organizations/{organization_id}/users/{user_id}
 PUT	/api/v1/organizations/{organization_id}/users/{user_id}/role

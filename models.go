@@ -110,6 +110,9 @@ type NexusExecuteResult struct {
 	ArtifactID *string
 	DurationMs int
 	Error      *string
+	// ExecutionResultID identifies this execution; pass it to
+	// Nexus.Knowledge. Nil when the API did not return one.
+	ExecutionResultID *string
 }
 
 // NexusKnowledgeResult is returned by Nexus.Knowledge.

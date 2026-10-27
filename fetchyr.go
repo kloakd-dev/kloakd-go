@@ -14,12 +14,14 @@ type FetchyrNamespace struct {
 // Authenticate logs in to a site with credentials stored under
 // credentialName (StoreCredentials) and returns the authenticated session.
 // It replaces Login, whose route was removed: the API no longer takes
-// selectors or a password per call.
+// selectors or a password per call. Like DetectForms, FillForm and
+// DetectMFA, a request the API hands off as a job (202, after about 85 s) is
+// followed to its result; see Config.PollInterval.
 func (f *FetchyrNamespace) Authenticate(ctx context.Context, credentialName, targetURL string) (*SessionResult, error) {
-	raw, err := f.t.post(ctx, "fetchyr/authenticate", map[string]interface{}{
+	raw, err := f.t.postFollowing(ctx, "fetchyr/authenticate", map[string]interface{}{
 		"credential_name": credentialName,
 		"target_url":      targetURL,
-	})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +108,7 @@ func (f *FetchyrNamespace) DetectForms(ctx context.Context, targetURL string, se
 		body["session_artifact_id"] = sessionArtifactID
 	}
 
-	raw, err := f.t.post(ctx, "fetchyr/form/detect", body)
+	raw, err := f.t.postFollowing(ctx, "fetchyr/form/detect", body, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +122,7 @@ func (f *FetchyrNamespace) DetectMFA(ctx context.Context, targetURL string, sess
 		body["session_artifact_id"] = sessionArtifactID
 	}
 
-	raw, err := f.t.post(ctx, "fetchyr/mfa/detect", body)
+	raw, err := f.t.postFollowing(ctx, "fetchyr/mfa/detect", body, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +169,7 @@ func (f *FetchyrNamespace) FillForm(ctx context.Context, targetURL string, formD
 	if sessionArtifactID != "" {
 		body["session_artifact_id"] = sessionArtifactID
 	}
-	return f.t.post(ctx, "fetchyr/form/fill", body)
+	return f.t.postFollowing(ctx, "fetchyr/form/fill", body, nil)
 }
 
 // ListMFAChallenges lists pending MFA challenges.

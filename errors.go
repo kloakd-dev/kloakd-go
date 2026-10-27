@@ -99,9 +99,12 @@ func (e *UpstreamError) Error() string {
 	return fmt.Sprintf("UpstreamError(%d): %s", e.StatusCode, e.Message)
 }
 
-// ApiError is returned for any other 4xx/5xx response.
+// ApiError is returned for any other 4xx/5xx response. It is also the error
+// of a handed-off job that failed or expired (Code "job_failed") or was still
+// running at the poll timeout (Code "job_timeout"); JobID names the job.
 type ApiError struct {
 	KloakdError
+	JobID string
 }
 
 func (e *ApiError) Error() string {

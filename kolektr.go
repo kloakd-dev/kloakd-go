@@ -28,7 +28,8 @@ type ExtractOptions struct {
 type PageOptions = ExtractOptions
 
 // Extract extracts structured data from a URL with the full Kolektr
-// pipeline (POST kolektr/extract).
+// pipeline (POST kolektr/extract). A request the API hands off as a job
+// (202, after about 85 s) is followed to its result; see Config.PollInterval.
 func (k *KolektrNamespace) Extract(ctx context.Context, targetURL string, opts *ExtractOptions) (*ExtractionResult, error) {
 	body := map[string]interface{}{"url": targetURL}
 	if opts != nil {
@@ -52,7 +53,7 @@ func (k *KolektrNamespace) Extract(ctx context.Context, targetURL string, opts *
 		}
 	}
 
-	raw, err := k.t.post(ctx, "kolektr/extract", body)
+	raw, err := k.t.postFollowing(ctx, "kolektr/extract", body, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -125,11 +126,6 @@ func (k *KolektrNamespace) DeleteContent(ctx context.Context, itemID string) err
 // ListJobs lists extraction jobs.
 func (k *KolektrNamespace) ListJobs(ctx context.Context) (map[string]interface{}, error) {
 	return k.t.get(ctx, "kolektr/jobs", nil)
-}
-
-// CreateJob creates an extraction job.
-func (k *KolektrNamespace) CreateJob(ctx context.Context, config map[string]interface{}) (map[string]interface{}, error) {
-	return k.t.post(ctx, "kolektr/jobs", config)
 }
 
 // GetJob gets an extraction job by ID.

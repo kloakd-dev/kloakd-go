@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	sdkVersion     = "0.3.0"
+	sdkVersion     = "0.4.0"
 	defaultBaseURL = "https://api.kloakd.dev"
 	defaultTimeout = 30 * time.Second
 	defaultRetries = 3
@@ -30,6 +30,7 @@ type transport struct {
 	timeout        time.Duration
 	maxRetries     int
 	httpClient     *http.Client
+	poll           PollOptions
 }
 
 func newTransport(cfg Config) *transport {
@@ -44,6 +45,7 @@ func newTransport(cfg Config) *transport {
 		timeout:        cfg.effectiveTimeout(),
 		maxRetries:     cfg.effectiveMaxRetries(),
 		httpClient:     client,
+		poll:           PollOptions{Interval: cfg.PollInterval, Timeout: cfg.PollTimeout},
 	}
 }
 
@@ -92,8 +94,16 @@ func (t *transport) do(
 	body map[string]interface{},
 	params map[string]string,
 ) (int, map[string]interface{}, error) {
-	reqURL := t.buildURL(path, params)
+	return t.doURL(ctx, method, t.buildURL(path, params), body)
+}
 
+// doURL is do for a full URL (a hand-off's poll_url is a path from the
+// API's root, not from the organisation prefix).
+func (t *transport) doURL(
+	ctx context.Context,
+	method, reqURL string,
+	body map[string]interface{},
+) (int, map[string]interface{}, error) {
 	var bodyBytes []byte
 	if body != nil {
 		var err error

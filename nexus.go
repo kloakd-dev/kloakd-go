@@ -2,7 +2,6 @@ package kloakd
 
 import (
 	"context"
-	"fmt"
 )
 
 // NexusNamespace exposes the Strategy Engine module (5-layer cognitive pipeline).
@@ -24,7 +23,7 @@ func (n *NexusNamespace) Analyze(ctx context.Context, targetURL, html string, op
 		body["constraints"] = opts.Constraints
 	}
 
-	raw, err := n.t.post(ctx, "nexus/analyze", body)
+	raw, err := n.t.postFollowing(ctx, "nexus/analyze", body, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -33,9 +32,9 @@ func (n *NexusNamespace) Analyze(ctx context.Context, targetURL, html string, op
 
 // Synthesize generates an extraction program for a page and a goal.
 func (n *NexusNamespace) Synthesize(ctx context.Context, targetURL, html, goal string) (*NexusSynthesisResult, error) {
-	raw, err := n.t.post(ctx, "nexus/synthesize", map[string]interface{}{
+	raw, err := n.t.postFollowing(ctx, "nexus/synthesize", map[string]interface{}{
 		"url": targetURL, "html": html, "goal": goal,
-	})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +50,11 @@ func (n *NexusNamespace) Verify(ctx context.Context, strategyID string) (*NexusV
 	return parseNexusVerifyResult(raw), nil
 }
 
-// Execute runs a verified strategy against a URL.
+// Execute runs a verified strategy against a URL. The result's
+// ExecutionResultID is the id to pass to Knowledge.
+//
+// Analyze, Synthesize and Execute follow a request the API hands off as a job
+// (202, after about 85 s) to its result; see Config.PollInterval.
 func (n *NexusNamespace) Execute(ctx context.Context, strategyID, targetURL string, options map[string]interface{}) (*NexusExecuteResult, error) {
 	body := map[string]interface{}{
 		"strategy_id": strategyID,
@@ -60,7 +63,7 @@ func (n *NexusNamespace) Execute(ctx context.Context, strategyID, targetURL stri
 	if len(options) > 0 {
 		body["options"] = options
 	}
-	raw, err := n.t.post(ctx, "nexus/execute", body)
+	raw, err := n.t.postFollowing(ctx, "nexus/execute", body, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +71,8 @@ func (n *NexusNamespace) Execute(ctx context.Context, strategyID, targetURL stri
 }
 
 // Knowledge stores learned concepts and patterns from an execution result.
+// executionResultID is NexusExecuteResult.ExecutionResultID, returned by
+// Execute (execution_result_id).
 func (n *NexusNamespace) Knowledge(ctx context.Context, executionResultID string) (*NexusKnowledgeResult, error) {
 	raw, err := n.t.post(ctx, "nexus/knowledge", map[string]interface{}{
 		"execution_result_id": executionResultID,
@@ -81,71 +86,6 @@ func (n *NexusNamespace) Knowledge(ctx context.Context, executionResultID string
 // Reason performs logical reasoning via the Strategy Engine.
 func (n *NexusNamespace) Reason(ctx context.Context, context_ map[string]interface{}) (map[string]interface{}, error) {
 	return n.t.post(ctx, "nexus/reason", context_)
-}
-
-// RecommendAnalyze analyzes and gets recommendations.
-func (n *NexusNamespace) RecommendAnalyze(ctx context.Context, data map[string]interface{}) (map[string]interface{}, error) {
-	return n.t.post(ctx, "nexus/recommendations/analyze", data)
-}
-
-// ListRecommendationApplications lists recommendation applications.
-func (n *NexusNamespace) ListRecommendationApplications(ctx context.Context) (map[string]interface{}, error) {
-	return n.t.get(ctx, "nexus/recommendations/applications", nil)
-}
-
-// GetCacheStatistics gets recommendation cache statistics.
-func (n *NexusNamespace) GetCacheStatistics(ctx context.Context) (map[string]interface{}, error) {
-	return n.t.get(ctx, "nexus/recommendations/cache/statistics", nil)
-}
-
-// CleanupCache cleans up recommendation cache.
-func (n *NexusNamespace) CleanupCache(ctx context.Context) (map[string]interface{}, error) {
-	return n.t.post(ctx, "nexus/recommendations/cache/cleanup", map[string]interface{}{})
-}
-
-// InvalidateCache invalidates recommendation cache.
-func (n *NexusNamespace) InvalidateCache(ctx context.Context) (map[string]interface{}, error) {
-	return n.t.post(ctx, "nexus/recommendations/cache/invalidate", map[string]interface{}{})
-}
-
-// GetHooksStatus gets hooks status.
-func (n *NexusNamespace) GetHooksStatus(ctx context.Context) (map[string]interface{}, error) {
-	return n.t.get(ctx, "nexus/recommendations/hooks/status", nil)
-}
-
-// EnableHook enables a recommendation hook.
-func (n *NexusNamespace) EnableHook(ctx context.Context, hookName string) (map[string]interface{}, error) {
-	return n.t.post(ctx, fmt.Sprintf("nexus/recommendations/hooks/%s/enable", hookName), map[string]interface{}{})
-}
-
-// DisableHook disables a recommendation hook.
-func (n *NexusNamespace) DisableHook(ctx context.Context, hookName string) (map[string]interface{}, error) {
-	return n.t.post(ctx, fmt.Sprintf("nexus/recommendations/hooks/%s/disable", hookName), map[string]interface{}{})
-}
-
-// CreatePreference creates a recommendation preference.
-func (n *NexusNamespace) CreatePreference(ctx context.Context, preference map[string]interface{}) (map[string]interface{}, error) {
-	return n.t.post(ctx, "nexus/recommendations/preferences", preference)
-}
-
-// GetPreferences gets user preferences.
-func (n *NexusNamespace) GetPreferences(ctx context.Context, userID string) (map[string]interface{}, error) {
-	return n.t.get(ctx, fmt.Sprintf("nexus/recommendations/preferences/%s", userID), nil)
-}
-
-// UpdatePreference updates a recommendation preference.
-func (n *NexusNamespace) UpdatePreference(ctx context.Context, preferenceID string, data map[string]interface{}) (map[string]interface{}, error) {
-	return n.t.put(ctx, fmt.Sprintf("nexus/recommendations/preferences/%s", preferenceID), data)
-}
-
-// DeletePreference deletes a recommendation preference.
-func (n *NexusNamespace) DeletePreference(ctx context.Context, preferenceID string) error {
-	return n.t.delete(ctx, fmt.Sprintf("nexus/recommendations/preferences/%s", preferenceID))
-}
-
-// GetRecommendationStatistics gets recommendation statistics.
-func (n *NexusNamespace) GetRecommendationStatistics(ctx context.Context) (map[string]interface{}, error) {
-	return n.t.get(ctx, "nexus/recommendations/statistics", nil)
 }
 
 // ─── parsers ─────────────────────────────────────────────────────────────────
@@ -191,6 +131,8 @@ func parseNexusExecuteResult(raw map[string]interface{}) *NexusExecuteResult {
 		ArtifactID: nestedArtifactID(raw),
 		DurationMs: intField(raw, "duration_ms"),
 		Error:      optStrField(raw, "error_message"),
+
+		ExecutionResultID: optStrField(raw, "execution_result_id"),
 	}
 }
 
