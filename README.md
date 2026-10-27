@@ -10,7 +10,7 @@ Official Go SDK for the [KLOAKD API](https://kloakd.dev) — the anti-bot intell
 ## Installation
 
 ```bash
-go get github.com/kloakd/kloakd-go
+go get github.com/kloakd-dev/kloakd-go
 ```
 
 ## Quickstart
@@ -23,7 +23,7 @@ import (
     "fmt"
     "log"
 
-    kloakd "github.com/kloakd/kloakd-go"
+    kloakd "github.com/kloakd-dev/kloakd-go"
 )
 
 func main() {
