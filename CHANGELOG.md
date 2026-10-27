@@ -2,6 +2,44 @@
 
 All notable changes to the KLOAKD Go SDK are documented here.
 
+## [0.4.0] — 2026-10-28
+
+### Added
+- Every route that can hand off to a job is followed: past about 85 s
+  `Kolektr.Extract`, `Fetchyr.Authenticate`, `DetectForms`, `FillForm`,
+  `DetectMFA` and `Nexus.Analyze`, `Synthesize`, `Execute` (as well as
+  `Evadr.Fetch`) answer 202 with `job_id` and `poll_url`; the SDK polls
+  `poll_url` with backoff (×1.5 from the poll interval, at most 15 s) and
+  returns the same typed result as a direct answer. One follower serves all
+  nine.
+- `Config.PollInterval` / `PollTimeout` (defaults 3 s / 15 min) for every
+  follow; `FetchOptions.PollInterval` / `PollTimeout` still override them
+  for one fetch.
+- `ApiError.JobID`: the job of a `job_failed` / `job_timeout` error. A poll
+  that finds the job gone (404, expired after an hour) is `job_failed`; a
+  202 without `job_id`/`poll_url` is `unexpected_handoff`.
+- `NexusExecuteResult.ExecutionResultID` (`execution_result_id`), the id to
+  pass to `Nexus.Knowledge`.
+- `DefaultPollInterval`, `DefaultPollTimeout`, `PollOptions`.
+
+### Changed
+- `Evadr.Fetch` follows the 202's `poll_url` rather than building
+  `evadr/jobs/{id}` itself (the same route), and its poll waits now grow
+  1.5× per poll instead of staying fixed.
+
+### Removed (breaking)
+- The 13 `nexus/recommendations/*` methods (`RecommendAnalyze`,
+  `ListRecommendationApplications`, `GetCacheStatistics`, `CleanupCache`,
+  `InvalidateCache`, `GetHooksStatus`, `EnableHook`, `DisableHook`,
+  `CreatePreference`, `GetPreferences`, `UpdatePreference`,
+  `DeletePreference`, `GetRecommendationStatistics`) and
+  `Kolektr.CreateJob`: the API deletes these routes, which returned invented
+  results.
+
+### Fixed
+- README: the module path is `github.com/kloakd-dev/kloakd-go` (as in
+  `go.mod`).
+
 ## [0.3.0] — 2026-10-27
 
 Every call now targets a live API route (`ROUTES.md`; a contract test checks

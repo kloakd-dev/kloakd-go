@@ -1,4 +1,19 @@
-# Routes called by the Go SDK, 0.2.0 → 0.3.0
+# Routes called by the Go SDK
+
+## 0.3.0 → 0.4.0
+
+Checked against kobe-scraper's routers on 2026-10-28 (`testdata/routes.tsv` updated; `TestContract_DeletedRoutesAreGoneAndTheHandOffPollIsLive` checks the changes below).
+
+| Call | 0.4.0 |
+|---|---|
+| `POST kolektr/extract`, `POST fetchyr/authenticate`, `POST fetchyr/form/detect`, `POST fetchyr/form/fill`, `POST fetchyr/mfa/detect`, `POST nexus/analyze`, `POST nexus/synthesize`, `POST nexus/execute` | can answer 202 (`@hands_off_after_limit`, `kernel/sync_handoff.py`); the SDK follows `poll_url` |
+| `GET handoff/{job_id}` | new: the hand-off poll route (running / completed with `result` / failed with `error`; 404 when not found or expired) |
+| `POST evadr/fetch` | 202 followed through the same follower, via its own `poll_url` (`evadr/jobs/{id}`) |
+| `POST nexus/execute` | response gains `execution_result_id` (`NexusExecuteResult.ExecutionResultID`), the id for `POST nexus/knowledge` |
+| the 13 `nexus/recommendations/*` routes | deleted from the API (invented results); `RecommendAnalyze`, `ListRecommendationApplications`, `GetCacheStatistics`, `CleanupCache`, `InvalidateCache`, `GetHooksStatus`, `EnableHook`, `DisableHook`, `CreatePreference`, `GetPreferences`, `UpdatePreference`, `DeletePreference`, `GetRecommendationStatistics` removed |
+| `POST kolektr/jobs` | deleted from the API; `Kolektr.CreateJob` removed (`GET kolektr/jobs`, `GET kolektr/jobs/{id}` kept) |
+
+## 0.2.0 → 0.3.0
 
 Checked against the backend's route list at kobe-scraper 4fb33ea4 (module routers mounted as `kernel/bootstrap.py` does), copied to `testdata/routes.tsv`; `TestContract_EverySDKCallIsALiveRoute` / the contract test keeps it so. Paths are relative to `/api/v1/organizations/{organization_id}/`.
 

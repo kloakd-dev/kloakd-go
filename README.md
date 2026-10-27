@@ -72,8 +72,23 @@ client, err := kloakd.New(kloakd.Config{
     Timeout:        30 * time.Second,         // optional, default 30s
     MaxRetries:     3,                        // optional, default 3
     HTTPClient:     customHTTPClient,         // optional, for testing/proxies
+    PollInterval:   3 * time.Second,          // optional: first wait when following a 202
+    PollTimeout:    15 * time.Minute,         // optional: longest wait for a handed-off job
 })
 ```
+
+### Long requests (HTTP 202 hand-off)
+
+The API answers synchronous requests within about 85 s (it sits behind
+Cloudflare, which closes requests at 100 s). A request still running then
+continues as a job: the API answers 202 with a `job_id` and `poll_url`, and
+the SDK polls `poll_url` (waits grow 1.5× from `PollInterval`, at most 15 s)
+and returns the same typed result a direct answer would have. This applies to
+`Evadr.Fetch`, `Kolektr.Extract`, `Fetchyr.Authenticate`, `DetectForms`,
+`FillForm`, `DetectMFA` and `Nexus.Analyze`, `Synthesize`, `Execute`. A
+failed or expired job is an `*kloakd.ApiError` with `Code` `"job_failed"`; a
+job still running at `PollTimeout` has `Code` `"job_timeout"`; `JobID` names
+the job. Cancelling `ctx` stops the wait.
 
 ## Modules
 
@@ -83,8 +98,8 @@ client, err := kloakd.New(kloakd.Config{
 // Fetch a URL through anti-bot bypass
 result, err := client.Evadr.Fetch(ctx, url, nil)
 
-// Fetch answers within about 85 s. A slower site is handed off as a job
-// (HTTP 202); Fetch follows it to the result. Tune the wait:
+// A fetch handed off as a job (HTTP 202) is followed to its result.
+// FetchOptions overrides Config.PollInterval / PollTimeout for one call:
 fetch, err = client.Evadr.Fetch(ctx, url, &kloakd.FetchOptions{
     PollInterval: 3 * time.Second, PollTimeout: 15 * time.Minute,
 })
@@ -137,6 +152,10 @@ perception, _ := client.Nexus.Analyze(ctx, url, *page.HTML, nil)
 strategy, _   := client.Nexus.Synthesize(ctx, url, *page.HTML, "product prices")
 verified, _   := client.Nexus.Verify(ctx, strategy.StrategyID)
 result, _     := client.Nexus.Execute(ctx, strategy.StrategyID, url, nil)
+if result.ExecutionResultID != nil {
+    learned, _ := client.Nexus.Knowledge(ctx, *result.ExecutionResultID)
+    fmt.Println(learned.TotalPatterns)
+}
 ```
 
 ### `client.Parlyr` — Conversational NLP
