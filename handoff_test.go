@@ -235,3 +235,45 @@ func TestHandOff_BackoffGrowsAndIsCapped(t *testing.T) {
 		t.Errorf("unexpected schedule %v", waits)
 	}
 }
+
+func TestHandOff_GetHandoffAndWaitForHandoff(t *testing.T) {
+	polls := 0
+	_, server := newRouteServer(map[string]http.HandlerFunc{
+		"GET handoff/job-7": func(w http.ResponseWriter, r *http.Request) {
+			polls++
+			if polls < 3 {
+				jsonHandler(200, map[string]interface{}{"job_id": "job-7", "kind": "kolektr_extract", "status": "running"})(w, r)
+				return
+			}
+			jsonHandler(200, map[string]interface{}{"job_id": "job-7", "kind": "kolektr_extract", "status": "completed",
+				"result": map[string]interface{}{"success": true, "total_records": float64(4)}})(w, r)
+		},
+	})
+	defer server.Close()
+	c := newTestClient(server)
+
+	job, err := c.GetHandoff(context.Background(), "job-7")
+	if err != nil || job.Status != "running" || job.Kind != "kolektr_extract" || job.Result != nil {
+		t.Fatalf("unexpected job: %+v %v", job, err)
+	}
+	result, err := c.WaitForHandoff(context.Background(), "job-7", &PollOptions{Interval: time.Millisecond})
+	if err != nil || result["total_records"] != float64(4) || polls != 3 {
+		t.Fatalf("unexpected: %v %v (polls %d)", result, err, polls)
+	}
+}
+
+func TestHandOff_GetHandoffNotFound(t *testing.T) {
+	_, server := newRouteServer(map[string]http.HandlerFunc{
+		"GET handoff/gone": jsonHandler(404, map[string]interface{}{"detail": "Job gone not found or expired"}),
+	})
+	defer server.Close()
+	_, err := newTestClient(server).GetHandoff(context.Background(), "gone")
+	var apiErr *ApiError
+	if !errorsAs(err, &apiErr) || apiErr.StatusCode != 404 {
+		t.Fatalf("expected a 404 ApiError, got %v", err)
+	}
+	_, err = newTestClient(server).WaitForHandoff(context.Background(), "gone", &PollOptions{Interval: time.Millisecond})
+	if !errorsAs(err, &apiErr) || apiErr.Code != "job_failed" || apiErr.JobID != "gone" {
+		t.Fatalf("expected job_failed with the job id, got %v", err)
+	}
+}

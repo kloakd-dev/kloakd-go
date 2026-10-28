@@ -2,8 +2,6 @@ package kloakd
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 	"time"
 )
 
@@ -115,19 +113,7 @@ func (e *EvadrNamespace) FetchStream(ctx context.Context, targetURL string, opts
 	if err != nil {
 		return nil, err
 	}
-	raw, err := e.JobEvents(ctx, jobID)
-	if err != nil {
-		return nil, err
-	}
-
-	ch := make(chan FetchEvent, 16)
-	go func() {
-		defer close(ch)
-		for payload := range raw {
-			ch <- parseFetchEvent(payload)
-		}
-	}()
-	return ch, nil
+	return e.JobEvents(ctx, jobID)
 }
 
 // AnalyzeOptions configures optional parameters for Evadr.Analyze.
@@ -172,13 +158,18 @@ func (e *EvadrNamespace) Profile(ctx context.Context, targetURL string) (map[str
 
 // GetJob polls an async fetch job by ID.
 func (e *EvadrNamespace) GetJob(ctx context.Context, jobID string) (map[string]interface{}, error) {
-	return e.t.get(ctx, fmt.Sprintf("evadr/jobs/%s", jobID), nil)
+	return e.t.get(ctx, pathf("evadr/jobs/%s", jobID), nil)
 }
 
 // JobEvents streams an async fetch job's progress events (SSE). The
-// channel closes when the job ends or ctx is cancelled.
-func (e *EvadrNamespace) JobEvents(ctx context.Context, jobID string) (<-chan map[string]interface{}, error) {
-	return e.t.getStream(ctx, fmt.Sprintf("evadr/jobs/%s/events", jobID), nil)
+// channel closes when the job ends or ctx is cancelled; if reading the
+// stream failed, the last event carries Err.
+func (e *EvadrNamespace) JobEvents(ctx context.Context, jobID string) (<-chan FetchEvent, error) {
+	raw, err := e.t.getStream(ctx, pathf("evadr/jobs/%s/events", jobID), nil)
+	if err != nil {
+		return nil, err
+	}
+	return mapStream(ctx, raw, parseFetchEvent), nil
 }
 
 // ListVendors lists all known anti-bot detection vendors.
@@ -202,7 +193,7 @@ func (e *EvadrNamespace) StoreProxy(ctx context.Context, name, proxyURL string) 
 
 // DeleteProxy deletes a stored proxy configuration by name.
 func (e *EvadrNamespace) DeleteProxy(ctx context.Context, name string) error {
-	return e.t.delete(ctx, fmt.Sprintf("evadr/proxies/%s", name))
+	return e.t.delete(ctx, pathf("evadr/proxies/%s", name))
 }
 
 // ─── parsers ─────────────────────────────────────────────────────────────────
@@ -218,26 +209,68 @@ func parseFetchResult(raw map[string]interface{}) *FetchResult {
 		VendorDetected:  optStrField(raw, "vendor_detected"),
 		ArtifactID:      nestedArtifactID(raw),
 		Error:           optStrField(raw, "error"),
+		AuthRequired:    boolField(raw, "auth_required"),
+		DiscoveryID:     optStrField(raw, "discovery_id"),
 	}
 	return r
 }
 
-func parseFetchEvent(raw map[string]interface{}) FetchEvent {
-	ev := FetchEvent{
-		Type:     strField(raw, "type"),
-		Vendor:   optStrField(raw, "vendor"),
-		Metadata: mapField(raw, "metadata"),
+func parseFetchEvent(m sseMessage) FetchEvent {
+	if m.err != nil {
+		return FetchEvent{Err: m.err}
 	}
-	if v, ok := raw["tier"]; ok && v != nil {
-		switch n := v.(type) {
-		case float64:
-			tier := int(n)
-			ev.Tier = &tier
-		case string:
-			if i, err := strconv.Atoi(n); err == nil {
-				ev.Tier = &i
+	raw := m.data
+	ev := FetchEvent{
+		Type:       strField(raw, "type"),
+		JobID:      strField(raw, "job_id"),
+		Status:     strField(raw, "status"),
+		TierUsed:   optIntField(raw, "tier_used"),
+		ArtifactID: optStrField(raw, "artifact_id"),
+		Error:      optStrField(raw, "error"),
+		Raw:        raw,
+	}
+	if _, ok := raw["event_type"]; ok {
+		p := parsePipelineEvent(m)
+		ev.Pipeline = &p
+		ev.Error = nil
+		for _, key := range []string{"user_message", "technical_message"} {
+			if msg, ok := p.Error[key].(string); ok && msg != "" {
+				ev.Error = &msg
+				break
 			}
 		}
+	}
+	return ev
+}
+
+// parsePipelineEvent reads a PipelineEvent (core/pipeline/models.py to_dict).
+func parsePipelineEvent(m sseMessage) PipelineEvent {
+	if m.err != nil {
+		return PipelineEvent{Err: m.err}
+	}
+	raw := m.data
+	ev := PipelineEvent{
+		PipelineID:  strField(raw, "pipeline_id"),
+		EventType:   strField(raw, "event_type"),
+		StageID:     strField(raw, "stage_id"),
+		Status:      strField(raw, "status"),
+		Phase:       strField(raw, "phase"),
+		Message:     strField(raw, "message"),
+		SubStatus:   strField(raw, "sub_status"),
+		ProgressPct: optFloatField(raw, "progress_pct"),
+		DurationMs:  optFloatField(raw, "duration_ms"),
+		Metadata:    mapField(raw, "metadata"),
+		Timestamp:   strField(raw, "timestamp"),
+		Sequence:    intField(raw, "sequence"),
+		Raw:         raw,
+	}
+	if ev.EventType == "" {
+		ev.EventType = m.event
+	}
+	if e, ok := raw["error"].(map[string]interface{}); ok {
+		ev.Error = e
+	} else if s, ok := raw["error"].(string); ok && s != "" {
+		ev.Error = map[string]interface{}{"user_message": s}
 	}
 	return ev
 }
@@ -330,6 +363,13 @@ func optIntField(m map[string]interface{}, key string) *int {
 	return nil
 }
 
+func optFloatField(m map[string]interface{}, key string) *float64 {
+	if f, ok := m[key].(float64); ok {
+		return &f
+	}
+	return nil
+}
+
 func float64Field(m map[string]interface{}, key string) float64 {
 	if v, ok := m[key]; ok {
 		if f, ok := v.(float64); ok {
@@ -377,6 +417,3 @@ func strSliceField(m map[string]interface{}, key string) []string {
 	}
 	return []string{}
 }
-
-// unused — suppress compiler warning
-var _ = fmt.Sprintf

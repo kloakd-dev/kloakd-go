@@ -1,26 +1,71 @@
 package kloakd
 
+// ─── Pipeline events ─────────────────────────────────────────────────────────
+
+// PipelineEvent is one event of a pipeline's SSE stream (a crawl's
+// webgrph/crawl/{id}/events, and an Evadr job's events when the job has a
+// live pipeline). Its fields are those of the API's PipelineEvent
+// (core/pipeline/models.py). Err is set only on the last value of a stream
+// whose reading failed; the other fields are then empty.
+type PipelineEvent struct {
+	PipelineID  string
+	EventType   string // e.g. "stage_started", "pipeline_complete", "pipeline_error"
+	StageID     string
+	Status      string
+	Phase       string
+	Message     string
+	SubStatus   string
+	ProgressPct *float64
+	DurationMs  *float64
+	Metadata    map[string]interface{}
+	// Error is the event's PipelineError ({error_code, category, severity,
+	// user_message, technical_message, recovery_actions, ...}), nil when none.
+	Error     map[string]interface{}
+	Timestamp string
+	Sequence  int
+	// Raw is the event's JSON as received.
+	Raw map[string]interface{}
+	Err error
+}
+
 // ─── Evadr ───────────────────────────────────────────────────────────────────
 
 // FetchResult is returned by Evadr.Fetch.
 type FetchResult struct {
-	Success         bool
-	URL             string
-	StatusCode      int
-	TierUsed        int
+	Success    bool
+	URL        string
+	StatusCode int
+	TierUsed   int
+	// HTML is nil when the API returned none (for example when
+	// AuthRequired is true).
 	HTML            *string
 	VendorDetected  *string
 	AntiBotBypassed bool
 	ArtifactID      *string
 	Error           *string
+	// AuthRequired is true when a login page was detected at the URL;
+	// DiscoveryID is then the auth-chain discovery started for it
+	// (Fetchyr.GetAuthChainStatus).
+	AuthRequired bool
+	DiscoveryID  *string
 }
 
-// FetchEvent is yielded by Evadr.FetchStream.
+// FetchEvent is yielded by Evadr.FetchStream and Evadr.JobEvents. A job with
+// a live pipeline streams pipeline events (Pipeline is set). Otherwise the
+// API polls the job and streams {type, job_id, status | tier_used,
+// artifact_id | error}: Type is "STATUS", "COMPLETE", "FAILED" or "ERROR"
+// (modules/evadr/router.py). Err is set only on the last value of a stream
+// whose reading failed.
 type FetchEvent struct {
-	Type     string
-	Tier     *int
-	Vendor   *string
-	Metadata map[string]interface{}
+	Type       string
+	JobID      string
+	Status     string
+	TierUsed   *int
+	ArtifactID *string
+	Error      *string
+	Pipeline   *PipelineEvent
+	Raw        map[string]interface{}
+	Err        error
 }
 
 // AnalyzeResult is returned by Evadr.Analyze.
@@ -59,16 +104,9 @@ type CrawlResult struct {
 	Error           *string
 }
 
-// CrawlEvent is yielded by Webgrph.CrawlStream.
-type CrawlEvent struct {
-	Type       string
-	URL        *string
-	Depth      *int
-	PagesFound *int
-	Metadata   map[string]interface{}
-}
-
-// ─── Skanyr ──────────────────────────────────────────────────────────────────
+// CrawlEvent is yielded by Webgrph.CrawlStream and Webgrph.CrawlEvents: a
+// crawl streams pipeline events.
+type CrawlEvent = PipelineEvent
 
 // ─── Nexus ───────────────────────────────────────────────────────────────────
 
@@ -123,6 +161,14 @@ type NexusKnowledgeResult struct {
 	DurationMs      int
 }
 
+// NexusReasonResult is returned by Nexus.Reason.
+type NexusReasonResult struct {
+	Success     bool
+	Results     []string
+	Confidence  float64
+	ReasoningID *string
+}
+
 // ─── Parlyr ──────────────────────────────────────────────────────────────────
 
 // ParseResult is returned by Parlyr.Parse.
@@ -138,22 +184,51 @@ type ParseResult struct {
 	DetectedURL         *string
 }
 
-// ChatTurn is returned by Parlyr.Chat.
+// ChatTurn is returned by Parlyr.Chat: one turn's events, collected.
 type ChatTurn struct {
-	SessionID           string
-	Intent              string
-	Confidence          float64
-	Tier                int
-	Response            string
-	Entities            map[string]interface{}
-	RequiresAction      bool
+	SessionID string
+	// OK is false when the turn emitted an "error" event (see Errors).
+	OK bool
+	// Response is the content of the turn's "text" and "clarification"
+	// events, in order, joined with "\n".
+	Response string
+	// Intent is the "intent" of the interpretation event's data, when the
+	// API sends one; "" otherwise. (The API's interpretation data has no
+	// intent key today; Interpretation holds what it does send.)
+	Intent string
+	// Interpretation is the data of the last "interpretation" event
+	// (url, entity, fields, summary, ...), nil when there was none.
+	Interpretation map[string]interface{}
+	// Results holds the data of each "results" event ({items, count, url,
+	// job_id, ...}).
+	Results []map[string]interface{}
+	// ClarificationNeeded is the content of the last "clarification" event.
 	ClarificationNeeded *string
+	// Warnings holds the content of each "warning" event.
+	Warnings []string
+	// Errors holds each "error" event (Content is the message, Data and
+	// Actions the details and recovery options).
+	Errors []ChatEvent
+	// Actions are the actions of the last event that offered any.
+	Actions []map[string]interface{}
+	// Events is every event of the turn, in order.
+	Events []ChatEvent
 }
 
-// ChatEvent is yielded by Parlyr.ChatStream.
+// ChatEvent is one event of a Parlyr chat turn (Parlyr.ChatStream), with
+// the API's payload fields {type, content, data, actions, timestamp}
+// (application/services/chat_orchestrator.py). Type is thinking,
+// interpretation, progress, results, error, warning, auth_required,
+// mfa_required, clarification, export_ready or text. Err is set only on
+// the last value of a stream whose reading failed.
 type ChatEvent struct {
-	Event string
-	Data  map[string]interface{}
+	Type      string
+	Content   *string
+	Data      map[string]interface{}
+	Actions   []map[string]interface{}
+	Timestamp string
+	Raw       map[string]interface{}
+	Err       error
 }
 
 // ─── Fetchyr ─────────────────────────────────────────────────────────────────
@@ -217,6 +292,14 @@ type DeduplicationResult struct {
 
 // ─── Kolektr ─────────────────────────────────────────────────────────────────
 
+// SchemaField is one field of an extraction schema (schema_spec.fields).
+type SchemaField struct {
+	Name      string
+	Selector  string // CSS selector
+	Attribute string // attribute to read; "" for the text
+	Type      string // "" means the API's default, "text"
+}
+
 // ExtractionResult is returned by Kolektr.Extract and Kolektr.ExtractHTML.
 type ExtractionResult struct {
 	Success      bool
@@ -228,6 +311,10 @@ type ExtractionResult struct {
 	ArtifactID   *string
 	JobID        *string
 	Error        *string
+	// AuthRequired is true when a login page was detected at the URL;
+	// DiscoveryID is then the auth-chain discovery started for it.
+	AuthRequired bool
+	DiscoveryID  *string
 }
 
 // ─── High-level orchestrator ─────────────────────────────────────────────────
@@ -242,6 +329,9 @@ type CrawlPage struct {
 	StructuredData map[string]interface{}
 	ArtifactID     *string
 	Error          *string
+	// ExtractionError is the error of the page's extraction, when
+	// ExtractSchema / ExtractFields was given and it failed.
+	ExtractionError *string
 }
 
 // Ok returns true if the page was fetched successfully.
@@ -249,7 +339,8 @@ func (p CrawlPage) Ok() bool {
 	return p.Success && p.Error == nil
 }
 
-// SiteCrawlResult is returned by Client.Crawl.
+// SiteCrawlResult is returned by Client.Crawl. Success and Error are the
+// discovery crawl's own.
 type SiteCrawlResult struct {
 	Success              bool
 	URL                  string
@@ -261,7 +352,10 @@ type SiteCrawlResult struct {
 	Error                *string
 }
 
-// CrawlProgressEvent is yielded by Client.CrawlStream.
+// CrawlProgressEvent is yielded by Client.CrawlStream. Type is
+// discovery_complete, page_fetching, page_fetched, page_failed,
+// crawl_complete or, when the crawl stops on an error (billing, auth or
+// rate limit, ctx), crawl_error with Err set.
 type CrawlProgressEvent struct {
 	Type     string
 	URL      *string
@@ -270,14 +364,24 @@ type CrawlProgressEvent struct {
 	Success  *bool
 	Error    *string
 	Metadata map[string]interface{}
+	Err      error
 }
 
 // CrawlOrchestratorOptions configures the high-level Crawl() and CrawlStream() methods.
 type CrawlOrchestratorOptions struct {
-	MaxDepth             int
-	MaxPages             int
+	// MaxDepth and MaxPages are sent only when set; otherwise the API
+	// applies the tier's defaults.
+	MaxDepth int
+	MaxPages int
+	// ExtractSchema is the shorthand {field: "css:selector"} ("css:" is
+	// optional); ExtractFields is the explicit list. Either one extracts
+	// each fetched page with Kolektr.
 	ExtractSchema        map[string]string
-	OutputFormat         string
+	ExtractFields        []SchemaField
 	IncludeExternalLinks bool
 	SessionArtifactID    string
+	// Scope, Budget and CaptureMode are the crawl policy (see CrawlOptions).
+	Scope       map[string]interface{}
+	Budget      map[string]interface{}
+	CaptureMode string
 }

@@ -1,9 +1,6 @@
 package kloakd
 
-import (
-	"context"
-	"fmt"
-)
+import "context"
 
 // FetchyrNamespace exposes the RPA & Authentication module.
 // Access via client.Fetchyr.
@@ -73,7 +70,7 @@ func (f *FetchyrNamespace) ExecuteWorkflow(ctx context.Context, workflowID, targ
 			body["input_data"] = opts.InputData
 		}
 	}
-	raw, err := f.t.post(ctx, fmt.Sprintf("fetchyr/workflows/%s/execute", workflowID), body)
+	raw, err := f.t.post(ctx, pathf("fetchyr/workflows/%s/execute", workflowID), body)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +79,7 @@ func (f *FetchyrNamespace) ExecuteWorkflow(ctx context.Context, workflowID, targ
 
 // GetExecution retrieves the result of a workflow execution.
 func (f *FetchyrNamespace) GetExecution(ctx context.Context, workflowID, executionID string) (*ExecutionResult, error) {
-	raw, err := f.t.get(ctx, fmt.Sprintf("fetchyr/workflows/%s/executions/%s", workflowID, executionID), nil)
+	raw, err := f.t.get(ctx, pathf("fetchyr/workflows/%s/executions/%s", workflowID, executionID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +91,7 @@ func (f *FetchyrNamespace) ResumeExecution(ctx context.Context, workflowID, exec
 	if resume == nil {
 		resume = map[string]interface{}{}
 	}
-	raw, err := f.t.post(ctx, fmt.Sprintf("fetchyr/workflows/%s/executions/%s/resume", workflowID, executionID), resume)
+	raw, err := f.t.post(ctx, pathf("fetchyr/workflows/%s/executions/%s/resume", workflowID, executionID), resume)
 	if err != nil {
 		return nil, err
 	}
@@ -132,15 +129,19 @@ func (f *FetchyrNamespace) DetectMFA(ctx context.Context, targetURL string, sess
 // ResolveMFA resolves a queued MFA challenge (the code, or "approved").
 // It replaces SubmitMFA, whose route was removed.
 func (f *FetchyrNamespace) ResolveMFA(ctx context.Context, challengeID, resolution string) (map[string]interface{}, error) {
-	return f.t.post(ctx, fmt.Sprintf("fetchyr/mfa-queue/%s/resolve", challengeID), map[string]interface{}{
+	return f.t.post(ctx, pathf("fetchyr/mfa-queue/%s/resolve", challengeID), map[string]interface{}{
 		"resolution": resolution,
 	})
 }
 
 // StoreCredentials stores login credentials securely.
 func (f *FetchyrNamespace) StoreCredentials(ctx context.Context, name string, credentials map[string]interface{}) (map[string]interface{}, error) {
-	credentials["name"] = name
-	return f.t.post(ctx, "fetchyr/account/credentials", credentials)
+	body := make(map[string]interface{}, len(credentials)+1)
+	for k, v := range credentials {
+		body[k] = v
+	}
+	body["name"] = name
+	return f.t.post(ctx, "fetchyr/account/credentials", body)
 }
 
 // ListCredentials lists stored credential names (no secret values).
@@ -150,7 +151,7 @@ func (f *FetchyrNamespace) ListCredentials(ctx context.Context) (map[string]inte
 
 // DeleteCredentials deletes stored credentials by name.
 func (f *FetchyrNamespace) DeleteCredentials(ctx context.Context, name string) error {
-	return f.t.delete(ctx, fmt.Sprintf("fetchyr/account/credentials/%s", name))
+	return f.t.delete(ctx, pathf("fetchyr/account/credentials/%s", name))
 }
 
 // ListSessions lists active browser sessions.
@@ -160,7 +161,7 @@ func (f *FetchyrNamespace) ListSessions(ctx context.Context) (map[string]interfa
 
 // TerminateSession terminates a session and releases Chrome slot.
 func (f *FetchyrNamespace) TerminateSession(ctx context.Context, artifactID string) error {
-	return f.t.delete(ctx, fmt.Sprintf("fetchyr/sessions/%s", artifactID))
+	return f.t.delete(ctx, pathf("fetchyr/sessions/%s", artifactID))
 }
 
 // FillForm fills and submits a form on a page.
@@ -179,42 +180,104 @@ func (f *FetchyrNamespace) ListMFAChallenges(ctx context.Context) (map[string]in
 
 // GetMFAChallenge gets a specific MFA challenge by ID.
 func (f *FetchyrNamespace) GetMFAChallenge(ctx context.Context, challengeID string) (map[string]interface{}, error) {
-	return f.t.get(ctx, fmt.Sprintf("fetchyr/mfa/challenges/%s", challengeID), nil)
+	return f.t.get(ctx, pathf("fetchyr/mfa/challenges/%s", challengeID), nil)
 }
 
 // GetMFAStatistics gets MFA statistics for a domain.
 func (f *FetchyrNamespace) GetMFAStatistics(ctx context.Context, domain string) (map[string]interface{}, error) {
-	return f.t.get(ctx, fmt.Sprintf("fetchyr/mfa/statistics/%s", domain), nil)
+	return f.t.get(ctx, pathf("fetchyr/mfa/statistics/%s", domain), nil)
 }
 
-// ListWorkflows lists all RPA workflow definitions.
-func (f *FetchyrNamespace) ListWorkflows(ctx context.Context) (map[string]interface{}, error) {
-	return f.t.get(ctx, "fetchyr/workflows", nil)
+// ListWorkflowsOptions pages Fetchyr.ListWorkflows (zero values: the API's defaults).
+type ListWorkflowsOptions struct {
+	Page     int
+	PageSize int
+}
+
+// ListWorkflows lists RPA workflow definitions.
+func (f *FetchyrNamespace) ListWorkflows(ctx context.Context, opts *ListWorkflowsOptions) (map[string]interface{}, error) {
+	params := map[string]string{}
+	if opts != nil {
+		setInt(params, "page", opts.Page)
+		setInt(params, "page_size", opts.PageSize)
+	}
+	return f.t.get(ctx, "fetchyr/workflows", params)
 }
 
 // GetWorkflow gets a workflow definition by ID.
 func (f *FetchyrNamespace) GetWorkflow(ctx context.Context, workflowID string) (map[string]interface{}, error) {
-	return f.t.get(ctx, fmt.Sprintf("fetchyr/workflows/%s", workflowID), nil)
+	return f.t.get(ctx, pathf("fetchyr/workflows/%s", workflowID), nil)
 }
 
 // UpdateWorkflow updates an existing workflow.
 func (f *FetchyrNamespace) UpdateWorkflow(ctx context.Context, workflowID string, updates map[string]interface{}) (map[string]interface{}, error) {
-	return f.t.patch(ctx, fmt.Sprintf("fetchyr/workflows/%s", workflowID), updates)
+	return f.t.patch(ctx, pathf("fetchyr/workflows/%s", workflowID), updates)
 }
 
 // DeleteWorkflow deletes a workflow definition.
 func (f *FetchyrNamespace) DeleteWorkflow(ctx context.Context, workflowID string) error {
-	return f.t.delete(ctx, fmt.Sprintf("fetchyr/workflows/%s", workflowID))
+	return f.t.delete(ctx, pathf("fetchyr/workflows/%s", workflowID))
 }
 
 // GetWorkflowStatistics gets execution statistics for a workflow.
 func (f *FetchyrNamespace) GetWorkflowStatistics(ctx context.Context, workflowID string) (map[string]interface{}, error) {
-	return f.t.get(ctx, fmt.Sprintf("fetchyr/workflows/%s/statistics", workflowID), nil)
+	return f.t.get(ctx, pathf("fetchyr/workflows/%s/statistics", workflowID), nil)
 }
 
-// CreateMultiSiteWorkflow creates a multi-site orchestration workflow.
-func (f *FetchyrNamespace) CreateMultiSiteWorkflow(ctx context.Context, name string, sites []map[string]interface{}) (map[string]interface{}, error) {
-	return f.t.post(ctx, "fetchyr/multi-site-workflows", map[string]interface{}{"name": name, "sites": sites})
+// SiteDependency orders two sites of a multi-site workflow: DependentSite
+// runs after DependencySite (site_id values). DependencyType is
+// "sequential" (the API's default), "data" or "conditional".
+type SiteDependency struct {
+	DependentSite    string
+	DependencySite   string
+	DependencyType   string
+	Condition        string
+	DataRequirements []string
+	// TimeoutSecs is the longest wait for the dependency; 0 for none.
+	TimeoutSecs int
+}
+
+// MultiSiteWorkflowOptions configures optional parameters for CreateMultiSiteWorkflow.
+type MultiSiteWorkflowOptions struct {
+	Description  string
+	Dependencies []SiteDependency
+	GlobalConfig map[string]interface{}
+}
+
+// CreateMultiSiteWorkflow creates a multi-site orchestration workflow. Each
+// site is {site_id, name, url, authentication_config?, workflow_steps?,
+// timeout?, retry_count?, priority?, metadata?}.
+func (f *FetchyrNamespace) CreateMultiSiteWorkflow(ctx context.Context, name string, sites []map[string]interface{}, opts *MultiSiteWorkflowOptions) (map[string]interface{}, error) {
+	body := map[string]interface{}{"name": name, "sites": sites}
+	if opts != nil {
+		if opts.Description != "" {
+			body["description"] = opts.Description
+		}
+		if len(opts.Dependencies) > 0 {
+			deps := make([]map[string]interface{}, 0, len(opts.Dependencies))
+			for _, d := range opts.Dependencies {
+				dep := map[string]interface{}{"dependent_site": d.DependentSite, "dependency_site": d.DependencySite}
+				if d.DependencyType != "" {
+					dep["dependency_type"] = d.DependencyType
+				}
+				if d.Condition != "" {
+					dep["condition"] = d.Condition
+				}
+				if len(d.DataRequirements) > 0 {
+					dep["data_requirements"] = d.DataRequirements
+				}
+				if d.TimeoutSecs > 0 {
+					dep["timeout"] = d.TimeoutSecs
+				}
+				deps = append(deps, dep)
+			}
+			body["dependencies"] = deps
+		}
+		if len(opts.GlobalConfig) > 0 {
+			body["global_config"] = opts.GlobalConfig
+		}
+	}
+	return f.t.post(ctx, "fetchyr/multi-site-workflows", body)
 }
 
 // CheckDuplicateOptions configures optional parameters for CheckDuplicate.
@@ -255,17 +318,17 @@ func (f *FetchyrNamespace) ListDedupSessions(ctx context.Context) (map[string]in
 
 // GetDedupSession gets a deduplication session by ID.
 func (f *FetchyrNamespace) GetDedupSession(ctx context.Context, sessionID string) (map[string]interface{}, error) {
-	return f.t.get(ctx, fmt.Sprintf("fetchyr/deduplication/sessions/%s", sessionID), nil)
+	return f.t.get(ctx, pathf("fetchyr/deduplication/sessions/%s", sessionID), nil)
 }
 
 // GetDedupSessionStatistics gets statistics for a deduplication session.
 func (f *FetchyrNamespace) GetDedupSessionStatistics(ctx context.Context, sessionID string) (map[string]interface{}, error) {
-	return f.t.get(ctx, fmt.Sprintf("fetchyr/deduplication/sessions/%s/statistics", sessionID), nil)
+	return f.t.get(ctx, pathf("fetchyr/deduplication/sessions/%s/statistics", sessionID), nil)
 }
 
 // GetDedupDomainStatistics gets deduplication statistics for a domain.
 func (f *FetchyrNamespace) GetDedupDomainStatistics(ctx context.Context, domain string) (map[string]interface{}, error) {
-	return f.t.get(ctx, fmt.Sprintf("fetchyr/deduplication/statistics/%s", domain), nil)
+	return f.t.get(ctx, pathf("fetchyr/deduplication/statistics/%s", domain), nil)
 }
 
 // DiscoverAuthChain starts discovering how a site authenticates.
@@ -275,7 +338,23 @@ func (f *FetchyrNamespace) DiscoverAuthChain(ctx context.Context, targetURL stri
 
 // GetAuthChainStatus gets an auth-chain discovery's status.
 func (f *FetchyrNamespace) GetAuthChainStatus(ctx context.Context, discoveryID string) (map[string]interface{}, error) {
-	return f.t.get(ctx, fmt.Sprintf("fetchyr/auth-chain/%s/status", discoveryID), nil)
+	return f.t.get(ctx, pathf("fetchyr/auth-chain/%s/status", discoveryID), nil)
+}
+
+// ResumeAuthChainCredentials gives the credentials a paused auth-chain
+// discovery asked for. With remember true the API stores them encrypted
+// for later workflow runs.
+func (f *FetchyrNamespace) ResumeAuthChainCredentials(ctx context.Context, discoveryID, username, password string, remember bool) (map[string]interface{}, error) {
+	return f.t.post(ctx, pathf("fetchyr/auth-chain/%s/resume-credentials", discoveryID), map[string]interface{}{
+		"username": username, "password": password, "remember": remember,
+	})
+}
+
+// ResumeAuthChainMFA gives the MFA code a paused auth-chain discovery asked for.
+func (f *FetchyrNamespace) ResumeAuthChainMFA(ctx context.Context, discoveryID, mfaCode string) (map[string]interface{}, error) {
+	return f.t.post(ctx, pathf("fetchyr/auth-chain/%s/resume-mfa", discoveryID), map[string]interface{}{
+		"mfa_code": mfaCode,
+	})
 }
 
 // ─── parsers ─────────────────────────────────────────────────────────────────

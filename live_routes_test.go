@@ -195,9 +195,9 @@ func liveRoutes(t *testing.T) map[string]bool {
 // sdkCalls scans the SDK's source for every route it calls, as
 // "METHOD path" with parameters as {}.
 func sdkCalls(t *testing.T) map[string]bool {
-	call := regexp.MustCompile(`\.t\.(get|post|postFollowing|put|patch|delete|stream|streamWithEvents|getStream|do|request)\(ctx,\s*(?:http\.Method(\w+),\s*)?(?:fmt\.Sprintf\()?"([^"]+)"`)
-	verbs := map[string]string{"get": "GET", "post": "POST", "postFollowing": "POST", "put": "PUT", "patch": "PATCH", "delete": "DELETE",
-		"stream": "POST", "streamWithEvents": "POST", "getStream": "GET"}
+	call := regexp.MustCompile(`\.t\.(get|getList|getRaw|post|postRaw|postFollowing|patch|delete|postStream|getStream|do|request)\(ctx,\s*(?:http\.Method(\w+),\s*)?(?:fmt\.Sprintf\(|pathf\()?"([^"]+)"`)
+	verbs := map[string]string{"get": "GET", "getList": "GET", "getRaw": "GET", "post": "POST", "postRaw": "POST",
+		"postFollowing": "POST", "patch": "PATCH", "delete": "DELETE", "postStream": "POST", "getStream": "GET"}
 	files, _ := filepath.Glob("*.go")
 	calls := map[string]bool{}
 	found := 0
@@ -213,9 +213,6 @@ func sdkCalls(t *testing.T) map[string]bool {
 					method = strings.ToUpper(m[2])
 				}
 				path := m[3]
-				if strings.Contains(line, `"parlyr/chat/"+`) {
-					path = "parlyr/chat/%s"
-				}
 				calls[method+" "+regexp.MustCompile(`%[sdv]`).ReplaceAllString(path, "{}")] = true
 				found++
 			}
@@ -291,6 +288,26 @@ func TestContract_DeletedRoutesAreGoneAndTheHandOffPollIsLive(t *testing.T) {
 	for key := range calls {
 		if strings.Contains(key, " nexus/recommendations/") || strings.Contains(key, " webgrph/analytics/") {
 			t.Errorf("the SDK still calls %s", key)
+		}
+	}
+}
+
+// 0.5.0: the Skanyr reads and the auth-chain resumes the JS and Python
+// SDKs had and Go lacked, and the public hand-off poll.
+func TestContract_ParityRoutesAreCalled(t *testing.T) {
+	calls := sdkCalls(t)
+	for _, key := range []string{
+		"GET skanyr/resources", "GET skanyr/resources/{}",
+		"GET skanyr/extractions/{}/text", "GET skanyr/extractions/{}/structure",
+		"POST skanyr/sites/{}/export", "GET skanyr/sites/{}/diff", "GET skanyr/sites/{}/findings",
+		"GET skanyr/sites/{}/graph", "GET skanyr/sites/{}/graph/stats", "GET skanyr/sites/{}/graph/subgraph/{}",
+		"GET skanyr/sites/{}/search", "GET skanyr/sites/{}/snapshots", "GET skanyr/sites/{}/technologies",
+		"GET skanyr/sites/{}/technology-evidence", "GET skanyr/sites/{}/timeline", "GET skanyr/sites/{}/timeline/{}",
+		"POST fetchyr/auth-chain/{}/resume-credentials", "POST fetchyr/auth-chain/{}/resume-mfa",
+		"GET handoff/{}",
+	} {
+		if !calls[key] {
+			t.Errorf("the SDK does not call %s", key)
 		}
 	}
 }

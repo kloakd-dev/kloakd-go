@@ -81,3 +81,27 @@ func TestNexus_VerifyExecuteKnowledge(t *testing.T) {
 		t.Fatalf("knowledge: %+v %v", knowledge, err)
 	}
 }
+
+func TestNexus_Reason(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST nexus/reason": jsonHandler(200, map[string]interface{}{"success": true, "results": []interface{}{"a", "b"},
+			"confidence": 0.8, "reasoning_id": "r1"}),
+	})
+	defer server.Close()
+	n := newTestClient(server).Nexus
+	r, err := n.Reason(context.Background(), "page_type", []string{"https://example.com"}, &ReasonOptions{TimeoutSecs: 5, PerceptionID: "p1"})
+	if err != nil || !r.Success || len(r.Results) != 2 || r.ReasoningID == nil || *r.ReasoningID != "r1" {
+		t.Fatalf("unexpected: %+v %v", r, err)
+	}
+	body := rs.bodies["POST nexus/reason"]
+	if body["query_type"] != "page_type" || body["parameters"].([]interface{})[0] != "https://example.com" ||
+		body["timeout_secs"] != float64(5) || body["perception_id"] != "p1" {
+		t.Errorf("unexpected body: %v", body)
+	}
+	if _, err := n.Reason(context.Background(), "q", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if params, ok := rs.bodies["POST nexus/reason"]["parameters"].([]interface{}); !ok || len(params) != 0 {
+		t.Errorf("nil parameters must be sent as []: %v", rs.bodies["POST nexus/reason"])
+	}
+}

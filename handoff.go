@@ -139,3 +139,53 @@ func nextPollInterval(d time.Duration) time.Duration {
 func jobError(code string, status int, msg, jobID string) error {
 	return &ApiError{KloakdError: KloakdError{StatusCode: status, Message: msg, Code: code}, JobID: jobID}
 }
+
+// HandoffJob is the state of a request the API handed off as a job
+// (GET handoff/{job_id}, kernel/sync_handoff.py).
+type HandoffJob struct {
+	JobID  string
+	Kind   string // the route's kind, e.g. "kolektr_extract"
+	Status string // "running", "completed" or "failed"
+	// Result is the route's own response, set when Status is "completed".
+	Result map[string]interface{}
+	// Error is set when Status is "failed".
+	Error *string
+	Raw   map[string]interface{}
+}
+
+// GetHandoff gets the state of a handed-off job once (no polling). A job
+// not found or expired (kept one hour) is an *ApiError with StatusCode 404.
+func (c *Client) GetHandoff(ctx context.Context, jobID string) (*HandoffJob, error) {
+	raw, err := c.t.get(ctx, pathf("handoff/%s", jobID), nil)
+	if err != nil {
+		return nil, err
+	}
+	job := &HandoffJob{
+		JobID:  strField(raw, "job_id"),
+		Kind:   strField(raw, "kind"),
+		Status: strField(raw, "status"),
+		Error:  optStrField(raw, "error"),
+		Raw:    raw,
+	}
+	if job.JobID == "" {
+		job.JobID = jobID
+	}
+	if r, ok := raw["result"].(map[string]interface{}); ok {
+		job.Result = r
+	}
+	return job, nil
+}
+
+// WaitForHandoff polls a handed-off job until it ends and returns its
+// result (the response the route would have given directly), as the
+// methods that follow a 202 do. Use it to resume a wait that ended with
+// Code "job_timeout" (ApiError.JobID). poll nil means Config.PollInterval /
+// PollTimeout. A failed or expired job is Code "job_failed". (An
+// Evadr.FetchAsync job is polled with Evadr.GetJob instead.)
+func (c *Client) WaitForHandoff(ctx context.Context, jobID string, poll *PollOptions) (map[string]interface{}, error) {
+	opts := c.t.poll
+	if poll != nil {
+		opts = poll.or(c.t.poll)
+	}
+	return c.t.followJob(ctx, jobID, c.t.orgPrefix()+"/"+pathf("handoff/%s", jobID), opts.effective())
+}

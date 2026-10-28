@@ -79,7 +79,7 @@ func TestWebgrph_Crawl_TimesOut(t *testing.T) {
 	_, err := newTestClient(server).Webgrph.Crawl(context.Background(), "https://example.com",
 		&CrawlOptions{PollInterval: time.Millisecond, PollTimeout: 20 * time.Millisecond})
 	var apiErr *ApiError
-	if !errorsAs(err, &apiErr) || apiErr.Code != "crawl_timeout" {
+	if !errorsAs(err, &apiErr) || apiErr.Code != "crawl_timeout" || apiErr.JobID != "c1" {
 		t.Fatalf("expected crawl_timeout, got %v", err)
 	}
 }
@@ -87,8 +87,9 @@ func TestWebgrph_Crawl_TimesOut(t *testing.T) {
 func TestWebgrph_CrawlStream(t *testing.T) {
 	routes := crawlRoutes([]string{"completed"})
 	routes["GET webgrph/crawl/c1/events"] = sseHandler([]map[string]interface{}{
-		{"type": "page_discovered", "url": "https://example.com/a", "depth": float64(1), "metadata": map[string]interface{}{}},
-		{"type": "done", "metadata": map[string]interface{}{}},
+		{"pipeline_id": "c1", "event_type": "stage_progress", "stage_id": "discovery", "status": "running",
+			"message": "12 pages", "progress_pct": float64(40), "metadata": map[string]interface{}{"pages": float64(12)}, "sequence": float64(1)},
+		{"event_type": "pipeline_complete", "sequence": float64(2), "crawl_id": "c1", "metadata": map[string]interface{}{}},
 	})
 	_, server := newRouteServer(routes)
 	defer server.Close()
@@ -98,7 +99,9 @@ func TestWebgrph_CrawlStream(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	events := drain(ch, 2*time.Second)
-	if len(events) != 2 || events[0].Type != "page_discovered" {
+	if len(events) != 2 || events[0].EventType != "stage_progress" || events[0].StageID != "discovery" ||
+		events[0].ProgressPct == nil || *events[0].ProgressPct != 40 || events[0].Sequence != 1 ||
+		events[1].EventType != "pipeline_complete" || events[1].Err != nil {
 		t.Fatalf("unexpected events: %+v", events)
 	}
 }
@@ -121,5 +124,55 @@ func TestWebgrph_SessionsMovedFromSkanyr(t *testing.T) {
 	}
 	if len(rs.seen) != 2 {
 		t.Errorf("unexpected calls: %v", rs.seen)
+	}
+}
+
+func TestWebgrph_ListSessions_AlwaysSendsActiveOnly(t *testing.T) {
+	var queries []string
+	_, server := newRouteServer(map[string]http.HandlerFunc{
+		"GET webgrph/sessions": func(w http.ResponseWriter, r *http.Request) {
+			queries = append(queries, r.URL.RawQuery)
+			jsonHandler(200, []interface{}{})(w, r)
+		},
+	})
+	defer server.Close()
+	client := newTestClient(server)
+	_, _ = client.Webgrph.ListSessions(context.Background(), true)
+	_, _ = client.Webgrph.ListSessions(context.Background(), false)
+	if len(queries) != 2 || queries[0] != "active_only=true" || queries[1] != "active_only=false" {
+		t.Fatalf("unexpected queries: %v", queries)
+	}
+}
+
+func TestWebgrph_CrawlPolicyAndReaderView(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST webgrph/crawl":       jsonHandler(202, map[string]interface{}{"success": true, "crawl_id": "c1"}),
+		"POST webgrph/reader-view": jsonHandler(200, map[string]interface{}{"title": "T"}),
+	})
+	defer server.Close()
+	client := newTestClient(server)
+	_, err := client.Webgrph.StartCrawl(context.Background(), "https://example.com", &CrawlOptions{
+		CaptureMode: "content",
+		Scope:       map[string]interface{}{"same_domain": true},
+		Budget:      map[string]interface{}{"max_resources": float64(10)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := rs.bodies["POST webgrph/crawl"]
+	if body["capture_mode"] != "content" || body["scope"].(map[string]interface{})["same_domain"] != true ||
+		body["budget"].(map[string]interface{})["max_resources"] != float64(10) {
+		t.Errorf("unexpected crawl body: %v", body)
+	}
+	if _, ok := body["max_depth"]; ok {
+		t.Error("max_depth must not be sent when unset")
+	}
+	if _, err := client.Webgrph.ReaderView(context.Background(), "https://example.com/a",
+		&ReaderViewOptions{CrawlID: "c1", SessionArtifactID: "sess-1"}); err != nil {
+		t.Fatal(err)
+	}
+	rv := rs.bodies["POST webgrph/reader-view"]
+	if rv["crawl_id"] != "c1" || rv["session_artifact_id"] != "sess-1" {
+		t.Errorf("unexpected reader-view body: %v", rv)
 	}
 }

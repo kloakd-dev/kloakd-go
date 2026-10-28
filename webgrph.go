@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -26,7 +27,14 @@ type CrawlOptions struct {
 	IncludeExternalLinks bool
 	SessionArtifactID    string
 	FastMode             bool
-	CaptureMode          string
+	// CaptureMode is "structure", "content" or "visual". Scope is a
+	// CrawlScope (same_host, same_domain, allowed_domains,
+	// allowed_subdomains, excluded_paths, include_patterns,
+	// exclude_patterns); Budget a CrawlBudget (max_resources, max_depth,
+	// max_file_size, max_total_bytes, ...). All optional.
+	CaptureMode string
+	Scope       map[string]interface{}
+	Budget      map[string]interface{}
 	// PollInterval and PollTimeout govern waiting for the crawl to finish
 	// (defaults 3 s and 60 min; ctx cancellation also stops the wait).
 	PollInterval time.Duration
@@ -55,6 +63,12 @@ func (w *WebgrphNamespace) StartCrawl(ctx context.Context, targetURL string, opt
 		}
 		if opts.CaptureMode != "" {
 			body["capture_mode"] = opts.CaptureMode
+		}
+		if len(opts.Scope) > 0 {
+			body["scope"] = opts.Scope
+		}
+		if len(opts.Budget) > 0 {
+			body["budget"] = opts.Budget
 		}
 	}
 	raw, err := w.t.post(ctx, "webgrph/crawl", body)
@@ -97,7 +111,7 @@ func (w *WebgrphNamespace) Crawl(ctx context.Context, targetURL string, opts *Cr
 		if time.Now().After(deadline) {
 			return nil, &ApiError{KloakdError: KloakdError{
 				Message: fmt.Sprintf("crawl %s still %s after %s", started.CrawlID, state, limit), Code: "crawl_timeout",
-			}}
+			}, JobID: started.CrawlID}
 		}
 		select {
 		case <-ctx.Done():
@@ -126,7 +140,7 @@ func (w *WebgrphNamespace) Crawl(ctx context.Context, targetURL string, opts *Cr
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
-		page, err := w.t.get(ctx, fmt.Sprintf("webgrph/crawl/%s/pages", started.CrawlID), params)
+		page, err := w.t.get(ctx, pathf("webgrph/crawl/%s/pages", started.CrawlID), params)
 		if err != nil {
 			return nil, err
 		}
@@ -153,48 +167,51 @@ func (w *WebgrphNamespace) CrawlAll(ctx context.Context, targetURL string, opts 
 
 // CrawlStreamOptions configures optional parameters for Webgrph.CrawlStream.
 type CrawlStreamOptions struct {
-	MaxDepth          int
-	MaxPages          int
-	SessionArtifactID string
+	MaxDepth             int
+	MaxPages             int
+	IncludeExternalLinks bool
+	SessionArtifactID    string
+	CaptureMode          string
+	Scope                map[string]interface{}
+	Budget               map[string]interface{}
 }
 
 // CrawlStream starts a crawl and streams its events
 // (GET webgrph/crawl/{crawl_id}/events). The channel closes when the crawl
-// ends or ctx is cancelled.
+// ends or ctx is cancelled; if reading the stream failed, the last event
+// carries Err.
 func (w *WebgrphNamespace) CrawlStream(ctx context.Context, targetURL string, opts *CrawlStreamOptions) (<-chan CrawlEvent, error) {
 	crawlOpts := &CrawlOptions{}
 	if opts != nil {
 		crawlOpts.MaxDepth = opts.MaxDepth
 		crawlOpts.MaxPages = opts.MaxPages
+		crawlOpts.IncludeExternalLinks = opts.IncludeExternalLinks
 		crawlOpts.SessionArtifactID = opts.SessionArtifactID
+		crawlOpts.CaptureMode = opts.CaptureMode
+		crawlOpts.Scope = opts.Scope
+		crawlOpts.Budget = opts.Budget
 	}
 	started, err := w.StartCrawl(ctx, targetURL, crawlOpts)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := w.CrawlEvents(ctx, started.CrawlID)
-	if err != nil {
-		return nil, err
-	}
-
-	ch := make(chan CrawlEvent, 16)
-	go func() {
-		defer close(ch)
-		for payload := range raw {
-			ch <- parseCrawlEvent(payload)
-		}
-	}()
-	return ch, nil
+	return w.CrawlEvents(ctx, started.CrawlID)
 }
 
 // GetCrawlStatus polls crawl status and stats.
 func (w *WebgrphNamespace) GetCrawlStatus(ctx context.Context, crawlID string) (map[string]interface{}, error) {
-	return w.t.get(ctx, fmt.Sprintf("webgrph/crawl/%s", crawlID), nil)
+	return w.t.get(ctx, pathf("webgrph/crawl/%s", crawlID), nil)
 }
 
-// CrawlEvents streams a crawl's events (SSE).
-func (w *WebgrphNamespace) CrawlEvents(ctx context.Context, crawlID string) (<-chan map[string]interface{}, error) {
-	return w.t.getStream(ctx, fmt.Sprintf("webgrph/crawl/%s/events", crawlID), nil)
+// CrawlEvents streams a crawl's pipeline events (SSE). The channel closes
+// when the stream ends or ctx is cancelled; if reading the stream failed,
+// the last event carries Err.
+func (w *WebgrphNamespace) CrawlEvents(ctx context.Context, crawlID string) (<-chan CrawlEvent, error) {
+	raw, err := w.t.getStream(ctx, pathf("webgrph/crawl/%s/events", crawlID), nil)
+	if err != nil {
+		return nil, err
+	}
+	return mapStream(ctx, raw, parsePipelineEvent), nil
 }
 
 // GetCrawlPages gets one page of discovered pages (cursor "" for the first).
@@ -204,14 +221,14 @@ func (w *WebgrphNamespace) GetCrawlPages(ctx context.Context, crawlID, cursor st
 		params["cursor"] = cursor
 	}
 	if limit > 0 {
-		params["limit"] = fmt.Sprintf("%d", limit)
+		params["limit"] = strconv.Itoa(limit)
 	}
-	return w.t.get(ctx, fmt.Sprintf("webgrph/crawl/%s/pages", crawlID), params)
+	return w.t.get(ctx, pathf("webgrph/crawl/%s/pages", crawlID), params)
 }
 
 // CancelCrawl cancels a running crawl.
 func (w *WebgrphNamespace) CancelCrawl(ctx context.Context, crawlID string) (map[string]interface{}, error) {
-	return w.t.post(ctx, fmt.Sprintf("webgrph/crawl/%s/cancel", crawlID), nil)
+	return w.t.post(ctx, pathf("webgrph/crawl/%s/cancel", crawlID), nil)
 }
 
 // DetectedAPIs lists the APIs detected on a page.
@@ -219,23 +236,33 @@ func (w *WebgrphNamespace) DetectedAPIs(ctx context.Context, pageURL string) (ma
 	return w.t.get(ctx, "webgrph/detected-apis", map[string]string{"page_url": pageURL})
 }
 
-// ReaderView returns a page's readable content (from a crawl's cache when
-// crawlID is given).
-func (w *WebgrphNamespace) ReaderView(ctx context.Context, targetURL, crawlID string) (map[string]interface{}, error) {
+// ReaderViewOptions configures optional parameters for Webgrph.ReaderView.
+type ReaderViewOptions struct {
+	// CrawlID reads the page from that crawl's cache when it has it.
+	CrawlID string
+	// SessionArtifactID fetches with an authenticated Fetchyr session.
+	SessionArtifactID string
+}
+
+// ReaderView returns a page's readable content.
+func (w *WebgrphNamespace) ReaderView(ctx context.Context, targetURL string, opts *ReaderViewOptions) (map[string]interface{}, error) {
 	body := map[string]interface{}{"url": targetURL}
-	if crawlID != "" {
-		body["crawl_id"] = crawlID
+	if opts != nil {
+		if opts.CrawlID != "" {
+			body["crawl_id"] = opts.CrawlID
+		}
+		if opts.SessionArtifactID != "" {
+			body["session_artifact_id"] = opts.SessionArtifactID
+		}
 	}
 	return w.t.post(ctx, "webgrph/reader-view", body)
 }
 
-// ListSessions lists discovery sessions (items under "items").
+// ListSessions lists discovery sessions (items under "items"): only the
+// active ones when activeOnly is true, all of them when false. (The API's
+// default is active only; active_only is always sent.)
 func (w *WebgrphNamespace) ListSessions(ctx context.Context, activeOnly bool) (map[string]interface{}, error) {
-	params := map[string]string{}
-	if activeOnly {
-		params["active_only"] = "true"
-	}
-	return w.t.get(ctx, "webgrph/sessions", params)
+	return w.t.get(ctx, "webgrph/sessions", map[string]string{"active_only": strconv.FormatBool(activeOnly)})
 }
 
 // SaveSession creates or updates a discovery session ("url" is required).
@@ -245,22 +272,22 @@ func (w *WebgrphNamespace) SaveSession(ctx context.Context, session map[string]i
 
 // GetSession gets a discovery session.
 func (w *WebgrphNamespace) GetSession(ctx context.Context, sessionID string) (map[string]interface{}, error) {
-	return w.t.get(ctx, fmt.Sprintf("webgrph/sessions/%s", sessionID), nil)
+	return w.t.get(ctx, pathf("webgrph/sessions/%s", sessionID), nil)
 }
 
 // DeleteSession deletes a discovery session.
 func (w *WebgrphNamespace) DeleteSession(ctx context.Context, sessionID string) error {
-	return w.t.delete(ctx, fmt.Sprintf("webgrph/sessions/%s", sessionID))
+	return w.t.delete(ctx, pathf("webgrph/sessions/%s", sessionID))
 }
 
 // EndSession ends a discovery session.
 func (w *WebgrphNamespace) EndSession(ctx context.Context, sessionID string) (map[string]interface{}, error) {
-	return w.t.post(ctx, fmt.Sprintf("webgrph/sessions/%s/end", sessionID), nil)
+	return w.t.post(ctx, pathf("webgrph/sessions/%s/end", sessionID), nil)
 }
 
 // UpdateSessionJob links a job to a discovery session.
 func (w *WebgrphNamespace) UpdateSessionJob(ctx context.Context, sessionID, jobID string) (map[string]interface{}, error) {
-	return w.t.request(ctx, http.MethodPatch, fmt.Sprintf("webgrph/sessions/%s/job", sessionID), nil, map[string]string{"job_id": jobID})
+	return w.t.request(ctx, http.MethodPatch, pathf("webgrph/sessions/%s/job", sessionID), nil, map[string]string{"job_id": jobID})
 }
 
 // ─── parsers ─────────────────────────────────────────────────────────────────
@@ -299,15 +326,5 @@ func parsePageNode(raw map[string]interface{}) PageNode {
 		Title:     optStrField(meta, "title"),
 		Children:  strSliceField(raw, "children_urls"),
 		Metadata:  meta,
-	}
-}
-
-func parseCrawlEvent(raw map[string]interface{}) CrawlEvent {
-	return CrawlEvent{
-		Type:       strField(raw, "type"),
-		URL:        optStrField(raw, "url"),
-		Depth:      optIntField(raw, "depth"),
-		PagesFound: optIntField(raw, "pages_found"),
-		Metadata:   mapField(raw, "metadata"),
 	}
 }

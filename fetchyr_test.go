@@ -140,3 +140,76 @@ func TestFetchyr_ListMFAChallenges_ArrayBody(t *testing.T) {
 		t.Errorf("expected the array under items, got %v", result)
 	}
 }
+
+func TestFetchyr_MultiSiteWorkflowDependencies(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST fetchyr/multi-site-workflows": jsonHandler(201, map[string]interface{}{"id": "w1"}),
+	})
+	defer server.Close()
+	sites := []map[string]interface{}{
+		{"site_id": "login", "name": "Login", "url": "https://a.example.com"},
+		{"site_id": "data", "name": "Data", "url": "https://b.example.com"},
+	}
+	_, err := newTestClient(server).Fetchyr.CreateMultiSiteWorkflow(context.Background(), "two sites", sites, &MultiSiteWorkflowOptions{
+		Description:  "login then data",
+		Dependencies: []SiteDependency{{DependentSite: "data", DependencySite: "login", DependencyType: "data", DataRequirements: []string{"token"}, TimeoutSecs: 60}},
+		GlobalConfig: map[string]interface{}{"parallel": false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := rs.bodies["POST fetchyr/multi-site-workflows"]
+	dep := body["dependencies"].([]interface{})[0].(map[string]interface{})
+	if dep["dependent_site"] != "data" || dep["dependency_site"] != "login" || dep["dependency_type"] != "data" ||
+		dep["timeout"] != float64(60) || dep["data_requirements"].([]interface{})[0] != "token" {
+		t.Errorf("unexpected dependency: %v", dep)
+	}
+	if body["description"] != "login then data" || body["global_config"].(map[string]interface{})["parallel"] != false {
+		t.Errorf("unexpected body: %v", body)
+	}
+}
+
+func TestFetchyr_AuthChainResume(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST fetchyr/auth-chain/d1/resume-credentials": jsonHandler(200, map[string]interface{}{"status": "resumed"}),
+		"POST fetchyr/auth-chain/d1/resume-mfa":         jsonHandler(200, map[string]interface{}{"status": "resumed", "discovery_id": "d1"}),
+	})
+	defer server.Close()
+	f := newTestClient(server).Fetchyr
+	if _, err := f.ResumeAuthChainCredentials(context.Background(), "d1", "user", "test-password", true); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := f.ResumeAuthChainMFA(context.Background(), "d1", "123456"); err != nil || r["status"] != "resumed" {
+		t.Fatal(r, err)
+	}
+	c := rs.bodies["POST fetchyr/auth-chain/d1/resume-credentials"]
+	if c["username"] != "user" || c["password"] != "test-password" || c["remember"] != true {
+		t.Errorf("unexpected credentials body: %v", c)
+	}
+	if rs.bodies["POST fetchyr/auth-chain/d1/resume-mfa"]["mfa_code"] != "123456" {
+		t.Errorf("unexpected mfa body: %v", rs.bodies["POST fetchyr/auth-chain/d1/resume-mfa"])
+	}
+}
+
+func TestFetchyr_ListWorkflowsPagingAndStoreCredentialsCopies(t *testing.T) {
+	var query string
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"GET fetchyr/workflows": func(w http.ResponseWriter, r *http.Request) {
+			query = r.URL.RawQuery
+			jsonHandler(200, map[string]interface{}{"workflows": []interface{}{}})(w, r)
+		},
+		"POST fetchyr/account/credentials": jsonHandler(201, map[string]interface{}{"name": "n"}),
+	})
+	defer server.Close()
+	f := newTestClient(server).Fetchyr
+	if _, err := f.ListWorkflows(context.Background(), &ListWorkflowsOptions{Page: 2, PageSize: 25}); err != nil || query != "page=2&page_size=25" {
+		t.Fatalf("unexpected query %q (%v)", query, err)
+	}
+	creds := map[string]interface{}{"username": "u"}
+	if _, err := f.StoreCredentials(context.Background(), "n", creds); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := creds["name"]; ok || rs.bodies["POST fetchyr/account/credentials"]["name"] != "n" {
+		t.Error("StoreCredentials must send name without changing the caller's map")
+	}
+}

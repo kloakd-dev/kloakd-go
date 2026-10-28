@@ -1,6 +1,9 @@
 package kloakd
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // ParlyrNamespace exposes the Conversational NLP module.
 // Access via client.Parlyr.
@@ -27,58 +30,99 @@ func (p *ParlyrNamespace) Parse(ctx context.Context, message string, opts *Parse
 	return parseParseResult(raw), nil
 }
 
-// Chat sends a message to a conversation session and blocks until the full
-// response is collected from the SSE stream.
+// Chat sends a message to a conversation session and collects the turn's
+// SSE events until "end" (see ChatTurn). An "error" event does not make
+// Chat fail: it is collected in Errors and OK is false. The returned error
+// is a request or stream error.
 func (p *ParlyrNamespace) Chat(ctx context.Context, sessionID, message string) (*ChatTurn, error) {
-	body := map[string]interface{}{
-		"session_id": sessionID,
-		"message":    message,
-	}
-
-	events, err := p.t.streamWithEvents(ctx, "parlyr/chat", body)
+	events, err := p.ChatStream(ctx, sessionID, message)
 	if err != nil {
 		return nil, err
 	}
 
-	turn := &ChatTurn{
-		SessionID: sessionID,
-		Entities:  map[string]interface{}{},
-	}
+	turn := &ChatTurn{SessionID: sessionID, OK: true}
+	var texts []string
 	for event := range events {
-		switch event.Event {
-		case "intent":
-			turn.Intent = strField(event.Data, "intent")
-			turn.Confidence = float64Field(event.Data, "confidence")
-			turn.Tier = intField(event.Data, "tier")
-			if v, ok := event.Data["entities"]; ok {
-				if m, ok := v.(map[string]interface{}); ok {
-					turn.Entities = m
+		if event.Err != nil {
+			return nil, event.Err
+		}
+		turn.Events = append(turn.Events, event)
+		if len(event.Actions) > 0 {
+			turn.Actions = event.Actions
+		}
+		content := ""
+		if event.Content != nil {
+			content = *event.Content
+		}
+		switch event.Type {
+		case "text":
+			if content != "" {
+				texts = append(texts, content)
+			}
+		case "clarification":
+			if content != "" {
+				texts = append(texts, content)
+			}
+			c := content
+			turn.ClarificationNeeded = &c
+		case "interpretation":
+			if event.Data != nil {
+				turn.Interpretation = event.Data
+				if intent := strField(event.Data, "intent"); intent != "" {
+					turn.Intent = intent
 				}
 			}
-			turn.RequiresAction = boolField(event.Data, "requires_action")
-		case "response":
-			turn.Response = strField(event.Data, "content")
-		case "clarification":
-			s := strField(event.Data, "message")
-			turn.ClarificationNeeded = &s
+		case "results":
+			if event.Data != nil {
+				turn.Results = append(turn.Results, event.Data)
+			}
+		case "warning":
+			turn.Warnings = append(turn.Warnings, content)
+		case "error":
+			turn.OK = false
+			turn.Errors = append(turn.Errors, event)
 		}
 	}
+	turn.Response = strings.Join(texts, "\n")
 	return turn, nil
 }
 
-// ChatStream opens an SSE stream for a conversation turn.
-// Returns a read-only channel of ChatEvent values.
+// ChatStream opens an SSE stream for a conversation turn and yields its
+// events as they arrive (see ChatEvent). The channel closes at the API's
+// "end" event (not yielded), when the stream ends, or when ctx is
+// cancelled; if reading the stream failed, the last event carries Err.
 func (p *ParlyrNamespace) ChatStream(ctx context.Context, sessionID, message string) (<-chan ChatEvent, error) {
 	body := map[string]interface{}{
 		"session_id": sessionID,
 		"message":    message,
 	}
-	return p.t.streamWithEvents(ctx, "parlyr/chat", body)
+	ctx, cancel := context.WithCancel(ctx)
+	raw, err := p.t.postStream(ctx, "parlyr/chat", body)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	out := make(chan ChatEvent, 16)
+	go func() {
+		defer cancel() // closes the response once "end" is read
+		defer close(out)
+		for m := range raw {
+			if m.err == nil && m.event == "end" {
+				return
+			}
+			select {
+			case out <- parseChatEvent(m):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
 }
 
 // DeleteSession removes a conversation session.
 func (p *ParlyrNamespace) DeleteSession(ctx context.Context, sessionID string) error {
-	return p.t.delete(ctx, "parlyr/chat/"+sessionID)
+	return p.t.delete(ctx, pathf("parlyr/chat/%s", sessionID))
 }
 
 // ─── parsers ─────────────────────────────────────────────────────────────────
@@ -95,4 +139,27 @@ func parseParseResult(raw map[string]interface{}) *ParseResult {
 		Reasoning:           optStrField(raw, "reasoning"),
 		DetectedURL:         optStrField(raw, "detected_url"),
 	}
+}
+
+func parseChatEvent(m sseMessage) ChatEvent {
+	if m.err != nil {
+		return ChatEvent{Err: m.err}
+	}
+	ev := ChatEvent{
+		Type:      strField(m.data, "type"),
+		Content:   optStrField(m.data, "content"),
+		Actions:   sliceMapField(m.data, "actions"),
+		Timestamp: strField(m.data, "timestamp"),
+		Raw:       m.data,
+	}
+	if d, ok := m.data["data"].(map[string]interface{}); ok {
+		ev.Data = d
+	}
+	if len(ev.Actions) == 0 {
+		ev.Actions = nil
+	}
+	if ev.Type == "" {
+		ev.Type = m.event
+	}
+	return ev
 }

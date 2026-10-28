@@ -83,9 +83,39 @@ func (n *NexusNamespace) Knowledge(ctx context.Context, executionResultID string
 	return parseNexusKnowledgeResult(raw), nil
 }
 
-// Reason performs logical reasoning via the Strategy Engine.
-func (n *NexusNamespace) Reason(ctx context.Context, context_ map[string]interface{}) (map[string]interface{}, error) {
-	return n.t.post(ctx, "nexus/reason", context_)
+// ReasonOptions configures optional parameters for Nexus.Reason.
+type ReasonOptions struct {
+	// TimeoutSecs bounds the reasoning call (timeout_secs); 0 for the API's default.
+	TimeoutSecs float64
+	// PerceptionID is a perception from a prior Analyze.
+	PerceptionID string
+}
+
+// Reason runs a logical query on the Strategy Engine: queryType with its
+// parameters (a list of strings; nil sends []).
+func (n *NexusNamespace) Reason(ctx context.Context, queryType string, parameters []string, opts *ReasonOptions) (*NexusReasonResult, error) {
+	if parameters == nil {
+		parameters = []string{}
+	}
+	body := map[string]interface{}{"query_type": queryType, "parameters": parameters}
+	if opts != nil {
+		if opts.TimeoutSecs > 0 {
+			body["timeout_secs"] = opts.TimeoutSecs
+		}
+		if opts.PerceptionID != "" {
+			body["perception_id"] = opts.PerceptionID
+		}
+	}
+	raw, err := n.t.post(ctx, "nexus/reason", body)
+	if err != nil {
+		return nil, err
+	}
+	return &NexusReasonResult{
+		Success:     boolField(raw, "success"),
+		Results:     strSliceField(raw, "results"),
+		Confidence:  float64Field(raw, "confidence"),
+		ReasoningID: optStrField(raw, "reasoning_id"),
+	}, nil
 }
 
 // ─── parsers ─────────────────────────────────────────────────────────────────

@@ -17,14 +17,19 @@ type Config struct {
 	// BaseURL overrides the API base URL. Defaults to https://api.kloakd.dev.
 	BaseURL string
 
-	// Timeout is the per-request timeout. Defaults to 30s.
+	// Timeout is the per-request timeout (http.Client.Timeout). Defaults to
+	// 100 s, above the API's 85 s synchronous wait, so a long request
+	// receives its 202 hand-off. SSE streams (ChatStream, CrawlStream,
+	// FetchStream, JobEvents, CrawlEvents) are not bound by it; ctx ends them.
 	Timeout time.Duration
 
 	// MaxRetries sets the number of retry attempts for retryable errors.
 	// 0 (unset) means the default, 3; a negative value means no retries.
 	MaxRetries int
 
-	// HTTPClient allows injecting a custom *http.Client (e.g. for testing).
+	// HTTPClient allows injecting a custom *http.Client (e.g. for testing or
+	// a proxy). Its own Timeout then applies instead of Timeout, except to
+	// SSE streams, which use a copy of it without a Timeout.
 	HTTPClient *http.Client
 
 	// PollInterval and PollTimeout govern following a request the API hands
