@@ -2,6 +2,94 @@
 
 All notable changes to the KLOAKD Go SDK are documented here.
 
+## [0.5.0] — unreleased
+
+### Breaking changes
+- `Parlyr.Chat` / `ChatStream` read the events the API sends
+  ({type, content, data, actions, timestamp}). `ChatEvent` is now
+  `{Type, Content, Data, Actions, Timestamp, Raw, Err}` (`Event` removed;
+  `Data` is the payload's `data`). `ChatTurn` drops `Confidence`, `Tier`,
+  `Entities` and `RequiresAction` (never sent) and gains `OK`,
+  `Interpretation`, `Results`, `Warnings`, `Errors`, `Actions`, `Events`;
+  `Response` joins the text and clarification content with "\n"; `Intent`
+  is the interpretation data's `intent` when present (the API sends none
+  today). An `error` event sets `OK` false and is collected in `Errors`.
+  `ChatStream` ends at `end` (not yielded).
+- `FetchEvent` is `{Type, JobID, Status, TierUsed, ArtifactID, Error,
+  Pipeline, Raw, Err}` (`Tier`, `Vendor`, `Metadata` removed: never sent).
+  `CrawlEvent` is now `PipelineEvent` ({EventType, StageID, Status,
+  Message, ProgressPct, Metadata, Error, Sequence, ...}).
+- `Evadr.JobEvents` returns `<-chan FetchEvent` and `Webgrph.CrawlEvents`
+  `<-chan CrawlEvent` (were raw maps).
+- `Nexus.Reason(ctx, queryType, parameters []string, *ReasonOptions)`
+  returns `*NexusReasonResult` (was a free map in and out).
+- `Skanyr.ListSites`, `SiteResources`, `SiteAPIs` return
+  `[]map[string]interface{}` (the API answers arrays); `SiteResources` and
+  `SiteAPIs` take options.
+- `Webgrph.ReaderView(ctx, url, *ReaderViewOptions)` (was a crawlID string).
+- `Fetchyr.CreateMultiSiteWorkflow` takes `*MultiSiteWorkflowOptions`;
+  `ListWorkflows` takes `*ListWorkflowsOptions`.
+- `Kolektr.ListJobs`, `ListScrapers`, `ListContent`, `GetAPIData`,
+  `GetAPIDataPaginated` and `ExtractAllAPIData` take options (paging,
+  endpoint_hash, max_records).
+- 403: only `not_entitled` and `tier_access_denied` are `NotEntitledError`;
+  any other 403 is the new `ForbiddenError` (`errors.As` with a
+  `*ForbiddenError` matches both).
+- Retries: a 5xx answer or a network error is retried only for GET, HEAD and
+  DELETE (POST, PUT and PATCH are no longer re-sent). Network errors on
+  GET/HEAD/DELETE are now retried.
+- `Client.Crawl` returns the discovery crawl's `Success`/`Error` (was always
+  true) and stops on billing, entitlement, authentication and rate-limit
+  errors instead of recording them on every page. It no longer sends
+  `max_depth` 3 / `max_pages` 100 unless set.
+- `CrawlOrchestratorOptions.OutputFormat` removed (never sent).
+- `go.mod` declares `go 1.18` (was 1.26.2; the README said 1.21).
+
+### Added
+- Default `Timeout` 100 s (was 30 s), above the API's 85 s synchronous wait,
+  so the 202 hand-off arrives. SSE streams use the client without a
+  `Timeout` (ctx ends them), and a stream read error is delivered as the
+  last value's `Err` (was dropped). SSE lines up to 16 MiB.
+- `Client.GetHandoff` and `Client.WaitForHandoff` (`GET handoff/{job_id}`);
+  a `crawl_timeout` `ApiError` carries the crawl id in `JobID`.
+- `ConcurrencyLimitError` (409 `concurrent_limit`).
+- `NotEntitledError.Feature`, `CurrentTier`, `RequiredTier`;
+  `QuotaExceededError.Tier`; `RateLimitError.QuotaExhausted`, `QuotaUsed`,
+  `QuotaLimit`, `UpgradeURL` (the playground quota, not retried).
+- 429 `rate_limited` is retried on any method, waiting for Retry-After /
+  `retry_after` / `reset_at`; 503 `billing_unavailable` on any method.
+- Error messages: a non-JSON body's text; a 422's `detail[]` as
+  `field: message; ...`.
+- Extraction schemas: the shorthand `{field: "css:selector"}` (prefix
+  optional) is sent as `{fields: [{name, selector}]}`, in `Kolektr.Extract`,
+  `ExtractHTML` and `Client.Crawl`; `SchemaField` and
+  `ExtractOptions.Fields` / `CrawlOrchestratorOptions.ExtractFields` for an
+  explicit list.
+- `FetchResult` and `ExtractionResult`: `AuthRequired`, `DiscoveryID`.
+- Skanyr: `UpdateSite`, `ListResources`, `GetResource`, `GetExtractionText`,
+  `GetExtractionStructure`, `ExportSite` (ZIP bytes), `Diff`, `GetFindings`,
+  `GetGraph`, `GetGraphStats`, `GetSubgraph`, `SearchSite`, `ListSnapshots`,
+  `GetTechnologies`, `GetTechnologyEvidence`, `GetTimeline`,
+  `GetTimelineSnapshot`.
+- Fetchyr: `ResumeAuthChainCredentials`, `ResumeAuthChainMFA`; multi-site
+  workflow `Dependencies`, `Description`, `GlobalConfig`.
+- Crawl `Scope` and `Budget` (`CrawlOptions`, `CrawlStreamOptions`,
+  `CrawlOrchestratorOptions`, with `CaptureMode`); reader view
+  `SessionArtifactID`.
+- `User-Agent: kloakd-sdk-go/0.5.0`; `X-Kloakd-SDK: go/0.5.0`.
+
+### Fixed
+- `Webgrph.ListSessions(ctx, false)` lists every session (it sent nothing,
+  and the API defaults to active only).
+- Path arguments are escaped as one segment (IDs, credential and proxy
+  names, domains, the api-data endpoint URL).
+- `Fetchyr.StoreCredentials` no longer adds `name` to the caller's map.
+- README: errors checked in the quickstart, real sync policies, stream and
+  event fields that exist.
+
+### Deprecated
+- `Skanyr.SetSitePolicy`: use `UpdateSite`.
+
 ## [0.4.0] — 2026-10-28
 
 ### Added

@@ -1,5 +1,34 @@
 # Routes called by the Go SDK
 
+## 0.4.0 → 0.5.0
+
+Checked against kobe-scraper e5f15f7d (`modules/*/router.py`, `kernel/sync_handoff.py`). Every call is still in `testdata/routes.tsv` (`TestContract_EverySDKCallIsALiveRoute`); `TestContract_ParityRoutesAreCalled` checks the new calls. Path arguments are now escaped as one segment each (`pathf`).
+
+| Call | 0.5.0 |
+|---|---|
+| `GET skanyr/resources`, `GET skanyr/resources/{resource_id}` | new: `ListResources` (site_id, resource_type, limit, offset), `GetResource` |
+| `GET skanyr/extractions/{content_hash}/text`, `…/structure` | new: `GetExtractionText` (text/plain answer, returned as a string), `GetExtractionStructure` |
+| `POST skanyr/sites/{site_id}/export` | new: `ExportSite` (resource_ids, max_bytes); answers a ZIP, returned as bytes |
+| `GET skanyr/sites/{site_id}/diff`, `findings`, `graph`, `graph/stats`, `graph/subgraph/{resource_id}`, `search`, `snapshots`, `technologies`, `technology-evidence`, `timeline`, `timeline/{snapshot_id}` | new: `Diff`, `GetFindings`, `GetGraph`, `GetGraphStats`, `GetSubgraph`, `SearchSite`, `ListSnapshots`, `GetTechnologies`, `GetTechnologyEvidence`, `GetTimeline`, `GetTimelineSnapshot` |
+| `GET skanyr/sites`, `sites/{id}/resources`, `sites/{id}/apis`, `findings`, `technologies`, `GET skanyr/resources` | answer JSON arrays; returned as `[]map[string]interface{}` |
+| `PATCH skanyr/sites/{site_id}` | `UpdateSite(siteID, policy)` (`SetSitePolicy` kept, deprecated) |
+| `POST fetchyr/auth-chain/{discovery_id}/resume-credentials`, `…/resume-mfa` | new: `ResumeAuthChainCredentials` {username, password, remember}, `ResumeAuthChainMFA` {mfa_code} |
+| `GET handoff/{job_id}` | now public: `Client.GetHandoff`, `Client.WaitForHandoff` |
+| `POST nexus/reason` | sends {query_type, parameters: [string], timeout_secs?, perception_id?} (was a free map) |
+| `POST fetchyr/multi-site-workflows` | sends description, dependencies [{dependent_site, dependency_site, dependency_type?, condition?, data_requirements?, timeout?}], global_config |
+| `GET kolektr/jobs` | page, limit, status_filter |
+| `GET kolektr/scrapers` | page, page_size, is_template |
+| `GET kolektr/content` | page, page_size, search |
+| `GET fetchyr/workflows` | page, page_size |
+| `GET kolektr/api-data/{api_endpoint}`, `…/paginated`, `POST …/extract-all` | endpoint_hash; max_records on extract-all; the endpoint URL is sent escaped as one segment |
+| `GET webgrph/sessions` | `active_only` always sent (the API's default is true) |
+| `POST webgrph/crawl` | adds scope, budget (capture_mode already); `Client.Crawl` no longer sends max_depth 3 / max_pages 100 by default |
+| `POST webgrph/reader-view` | adds session_artifact_id |
+| `POST kolektr/extract`, `POST kolektr/extract/html` | the `{field: "css:selector"}` shorthand is sent as `{fields: [{name, selector}]}`; results read auth_required, discovery_id |
+| `POST evadr/fetch` | results read auth_required, discovery_id |
+| `GET evadr/jobs/{id}/events`, `GET webgrph/crawl/{id}/events` | events parsed as the API sends them (pipeline events; Evadr's fallback {type, job_id, status, tier_used, artifact_id, error}) |
+| `POST parlyr/chat` | events parsed as {type, content, data, actions, timestamp}; the stream ends at `end` |
+
 ## 0.3.0 → 0.4.0
 
 Checked against kobe-scraper's routers on 2026-10-28, including the route removals in kobe-scraper d7d25134 (branch fix/stubs-and-knowledge) (`testdata/routes.tsv` updated; `TestContract_DeletedRoutesAreGoneAndTheHandOffPollIsLive` checks the changes below).
