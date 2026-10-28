@@ -2,7 +2,7 @@
 
 ## 0.3.0 → 0.4.0
 
-Checked against kobe-scraper's routers on 2026-10-28 (`testdata/routes.tsv` updated; `TestContract_DeletedRoutesAreGoneAndTheHandOffPollIsLive` checks the changes below).
+Checked against kobe-scraper's routers on 2026-10-28, including the route removals in kobe-scraper d7d25134 (branch fix/stubs-and-knowledge) (`testdata/routes.tsv` updated; `TestContract_DeletedRoutesAreGoneAndTheHandOffPollIsLive` checks the changes below).
 
 | Call | 0.4.0 |
 |---|---|
@@ -12,8 +12,17 @@ Checked against kobe-scraper's routers on 2026-10-28 (`testdata/routes.tsv` upda
 | `POST nexus/execute` | response gains `execution_result_id` (`NexusExecuteResult.ExecutionResultID`), the id for `POST nexus/knowledge` |
 | the 13 `nexus/recommendations/*` routes | deleted from the API (invented results); `RecommendAnalyze`, `ListRecommendationApplications`, `GetCacheStatistics`, `CleanupCache`, `InvalidateCache`, `GetHooksStatus`, `EnableHook`, `DisableHook`, `CreatePreference`, `GetPreferences`, `UpdatePreference`, `DeletePreference`, `GetRecommendationStatistics` removed |
 | `POST kolektr/jobs` | deleted from the API; `Kolektr.CreateJob` removed (`GET kolektr/jobs`, `GET kolektr/jobs/{id}` kept) |
+| `GET kolektr/jobs/%s/progress`, `…/progress/summary`, `…/progress/events`, `…/progress/latest` | deleted from the API (d7d25134); `GetJobProgress`, `GetJobProgressSummary`, `GetJobProgressEvents`, `GetJobProgressLatest` removed |
+| `GET kolektr/progress/phases`, `progress/phases/%s`, `progress/phases/%s/steps`, `progress/summary` | deleted from the API; `ListProgressPhases`, `GetProgressPhase`, `GetProgressPhaseSteps`, `GetProgressSummary` removed |
+| `GET kolektr/pipeline/%s/stream`, `pipeline/%s/events` | deleted from the API; `GetPipelineStream`, `GetPipelineEvents` removed |
+| `GET webgrph/analytics/job-trends`, `analytics/error-summary` | deleted from the API; `GetJobTrends`, `GetErrorSummary` removed |
+| `GET webgrph/analytics/dashboard/summary`, `content/discovery-patterns`, `scraping/efficiency-metrics`, `site-maps/trends`, `users/behavior-insights` | still served, by the dashboard-only sub-router (`modules/webgrph/analytics_router.py`), and left out of the public API (`scripts/generate_public_openapi.py` `EXCLUDED`); `GetDashboardSummary`, `GetDiscoveryPatterns`, `GetEfficiencyMetrics`, `GetSiteMappingTrends`, `GetUserBehaviorInsights` removed (rows stay in the fixture) |
+| `GET evadr/profiles` | deleted from the API; `Evadr.ListProfiles` removed (`GET evadr/vendors` kept) |
+| standalone `recommendations/*` (13 rows) | dropped from the fixture: that router is not mounted (`api/app.py`, GAP-SEC-6); the SDK never called it |
 
 ## 0.2.0 → 0.3.0
+
+The table records 0.3.0 as released; calls removed in 0.4.0 are listed above.
 
 Checked against the backend's route list at kobe-scraper 4fb33ea4 (module routers mounted as `kernel/bootstrap.py` does), copied to `testdata/routes.tsv`; `TestContract_EverySDKCallIsALiveRoute` / the contract test keeps it so. Paths are relative to `/api/v1/organizations/{organization_id}/`.
 

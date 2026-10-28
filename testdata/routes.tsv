@@ -12,7 +12,6 @@ DELETE	/api/v1/organizations/{organization_id}/kolektr/scrapers/{scraper_id}
 DELETE	/api/v1/organizations/{organization_id}/members/{user_id}
 DELETE	/api/v1/organizations/{organization_id}/parlyr/chat/{session_id}
 DELETE	/api/v1/organizations/{organization_id}/performance/queue/request/{request_id}
-DELETE	/api/v1/organizations/{organization_id}/recommendations/preferences/{preference_id}
 DELETE	/api/v1/organizations/{organization_id}/scrapers/{scraper_id}
 DELETE	/api/v1/organizations/{organization_id}/screenshots/{job_id}
 DELETE	/api/v1/organizations/{organization_id}/skanyr/sites/{site_id}
@@ -44,7 +43,6 @@ GET	/api/v1/organizations/{organization_id}/batch-jobs/{batch_job_id}/results
 GET	/api/v1/organizations/{organization_id}/batch-jobs/{batch_job_id}/stream
 GET	/api/v1/organizations/{organization_id}/evadr/jobs/{job_id}
 GET	/api/v1/organizations/{organization_id}/evadr/jobs/{job_id}/events
-GET	/api/v1/organizations/{organization_id}/evadr/profiles
 GET	/api/v1/organizations/{organization_id}/evadr/proxies
 GET	/api/v1/organizations/{organization_id}/evadr/vendors
 GET	/api/v1/organizations/{organization_id}/fetchyr/account/credentials
@@ -86,16 +84,6 @@ GET	/api/v1/organizations/{organization_id}/kolektr/content/{item_id}
 GET	/api/v1/organizations/{organization_id}/kolektr/extraction-jobs/{job_id}/status
 GET	/api/v1/organizations/{organization_id}/kolektr/jobs
 GET	/api/v1/organizations/{organization_id}/kolektr/jobs/{job_id}
-GET	/api/v1/organizations/{organization_id}/kolektr/jobs/{job_id}/progress
-GET	/api/v1/organizations/{organization_id}/kolektr/jobs/{job_id}/progress/events
-GET	/api/v1/organizations/{organization_id}/kolektr/jobs/{job_id}/progress/latest
-GET	/api/v1/organizations/{organization_id}/kolektr/jobs/{job_id}/progress/summary
-GET	/api/v1/organizations/{organization_id}/kolektr/pipeline/{pipeline_id}/events
-GET	/api/v1/organizations/{organization_id}/kolektr/pipeline/{pipeline_id}/stream
-GET	/api/v1/organizations/{organization_id}/kolektr/progress/phases
-GET	/api/v1/organizations/{organization_id}/kolektr/progress/phases/{phase_name}
-GET	/api/v1/organizations/{organization_id}/kolektr/progress/phases/{phase_name}/steps
-GET	/api/v1/organizations/{organization_id}/kolektr/progress/summary
 GET	/api/v1/organizations/{organization_id}/kolektr/scrapers
 GET	/api/v1/organizations/{organization_id}/kolektr/scrapers/{scraper_id}
 GET	/api/v1/organizations/{organization_id}/members
@@ -118,11 +106,6 @@ GET	/api/v1/organizations/{organization_id}/performance/rate-limit/status
 GET	/api/v1/organizations/{organization_id}/performance/stats
 GET	/api/v1/organizations/{organization_id}/pipeline/{pipeline_id}/events
 GET	/api/v1/organizations/{organization_id}/pipeline/{pipeline_id}/stream
-GET	/api/v1/organizations/{organization_id}/recommendations/applications
-GET	/api/v1/organizations/{organization_id}/recommendations/cache/statistics
-GET	/api/v1/organizations/{organization_id}/recommendations/hooks/status
-GET	/api/v1/organizations/{organization_id}/recommendations/preferences/{user_id}
-GET	/api/v1/organizations/{organization_id}/recommendations/statistics
 GET	/api/v1/organizations/{organization_id}/results/{job_id}/full
 GET	/api/v1/organizations/{organization_id}/results/{job_id}/html/download
 GET	/api/v1/organizations/{organization_id}/scraping/unified/{job_id}
@@ -153,8 +136,6 @@ GET	/api/v1/organizations/{organization_id}/users/statistics/overview
 GET	/api/v1/organizations/{organization_id}/users/{user_id}
 GET	/api/v1/organizations/{organization_id}/webgrph/analytics/content/discovery-patterns
 GET	/api/v1/organizations/{organization_id}/webgrph/analytics/dashboard/summary
-GET	/api/v1/organizations/{organization_id}/webgrph/analytics/error-summary
-GET	/api/v1/organizations/{organization_id}/webgrph/analytics/job-trends
 GET	/api/v1/organizations/{organization_id}/webgrph/analytics/scraping/efficiency-metrics
 GET	/api/v1/organizations/{organization_id}/webgrph/analytics/site-maps/trends
 GET	/api/v1/organizations/{organization_id}/webgrph/analytics/users/behavior-insights
@@ -259,12 +240,6 @@ POST	/api/v1/organizations/{organization_id}/parlyr/chat
 POST	/api/v1/organizations/{organization_id}/parlyr/parse
 POST	/api/v1/organizations/{organization_id}/performance/cache/clear
 POST	/api/v1/organizations/{organization_id}/performance/quota/check/{quota_type}
-POST	/api/v1/organizations/{organization_id}/recommendations/analyze
-POST	/api/v1/organizations/{organization_id}/recommendations/cache/cleanup
-POST	/api/v1/organizations/{organization_id}/recommendations/cache/invalidate
-POST	/api/v1/organizations/{organization_id}/recommendations/hooks/{hook_name}/disable
-POST	/api/v1/organizations/{organization_id}/recommendations/hooks/{hook_name}/enable
-POST	/api/v1/organizations/{organization_id}/recommendations/preferences
 POST	/api/v1/organizations/{organization_id}/scraping/clarify
 POST	/api/v1/organizations/{organization_id}/scraping/unified
 POST	/api/v1/organizations/{organization_id}/skanyr/extract
@@ -288,7 +263,6 @@ POST	/api/v1/organizations/{organization_id}/workspaces/{workspace_id}/members
 POST	/api/v1/playground/feedback
 PUT	/api/v1/organizations/{organization_id}/integrations/{integration_id}
 PUT	/api/v1/organizations/{organization_id}/integrations/{integration_id}/credentials
-PUT	/api/v1/organizations/{organization_id}/recommendations/preferences/{preference_id}
 PUT	/api/v1/organizations/{organization_id}/users/{user_id}
 PUT	/api/v1/organizations/{organization_id}/users/{user_id}/role
 PUT	/api/v1/organizations/{organization_id}/webhooks/{webhook_id}

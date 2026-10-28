@@ -186,11 +186,6 @@ func (e *EvadrNamespace) ListVendors(ctx context.Context) (map[string]interface{
 	return e.t.get(ctx, "evadr/vendors", nil)
 }
 
-// ListProfiles lists available evasion profiles.
-func (e *EvadrNamespace) ListProfiles(ctx context.Context) (map[string]interface{}, error) {
-	return e.t.get(ctx, "evadr/profiles", nil)
-}
-
 // ListProxies lists stored proxy configurations (names only, no secrets).
 func (e *EvadrNamespace) ListProxies(ctx context.Context) (map[string]interface{}, error) {
 	return e.t.get(ctx, "evadr/proxies", nil)

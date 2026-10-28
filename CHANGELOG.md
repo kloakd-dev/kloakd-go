@@ -18,8 +18,8 @@ All notable changes to the KLOAKD Go SDK are documented here.
 - `ApiError.JobID`: the job of a `job_failed` / `job_timeout` error. A poll
   that finds the job gone (404, expired after an hour) is `job_failed`; a
   202 without `job_id`/`poll_url` is `unexpected_handoff`.
-- `NexusExecuteResult.ExecutionResultID` (`execution_result_id`), the id to
-  pass to `Nexus.Knowledge`.
+- `NexusExecuteResult.ExecutionResultID` (`execution_result_id`, the same
+  value as the execution's artifact id), the id to pass to `Nexus.Knowledge`.
 - `DefaultPollInterval`, `DefaultPollTimeout`, `PollOptions`.
 
 ### Changed
@@ -35,6 +35,16 @@ All notable changes to the KLOAKD Go SDK are documented here.
   `DeletePreference`, `GetRecommendationStatistics`) and
   `Kolektr.CreateJob`: the API deletes these routes, which returned invented
   results.
+- Kolektr's progress and pipeline methods: `GetJobProgress`,
+  `GetJobProgressSummary`, `GetJobProgressEvents`, `GetJobProgressLatest`,
+  `ListProgressPhases`, `GetProgressPhase`, `GetProgressPhaseSteps`,
+  `GetProgressSummary`, `GetPipelineStream`, `GetPipelineEvents` (routes
+  deleted, invented results). `ListJobs` and `GetJob` stay.
+- `Webgrph.GetJobTrends`, `GetErrorSummary` (routes deleted) and
+  `GetDashboardSummary`, `GetDiscoveryPatterns`, `GetEfficiencyMetrics`,
+  `GetSiteMappingTrends`, `GetUserBehaviorInsights` (dashboard-only routes,
+  not part of the public API).
+- `Evadr.ListProfiles` (route deleted). `ListVendors` stays.
 
 ### Fixed
 - README: the module path is `github.com/kloakd-dev/kloakd-go` (as in

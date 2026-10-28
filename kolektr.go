@@ -138,56 +138,6 @@ func (k *KolektrNamespace) GetJobStatus(ctx context.Context, jobID string) (map[
 	return k.t.get(ctx, fmt.Sprintf("kolektr/extraction-jobs/%s/status", jobID), nil)
 }
 
-// GetJobProgress gets job progress.
-func (k *KolektrNamespace) GetJobProgress(ctx context.Context, jobID string) (map[string]interface{}, error) {
-	return k.t.get(ctx, fmt.Sprintf("kolektr/jobs/%s/progress", jobID), nil)
-}
-
-// GetJobProgressEvents gets job progress events.
-func (k *KolektrNamespace) GetJobProgressEvents(ctx context.Context, jobID string) (map[string]interface{}, error) {
-	return k.t.get(ctx, fmt.Sprintf("kolektr/jobs/%s/progress/events", jobID), nil)
-}
-
-// GetJobProgressLatest gets latest progress event for a job.
-func (k *KolektrNamespace) GetJobProgressLatest(ctx context.Context, jobID string) (map[string]interface{}, error) {
-	return k.t.get(ctx, fmt.Sprintf("kolektr/jobs/%s/progress/latest", jobID), nil)
-}
-
-// GetJobProgressSummary gets job progress summary.
-func (k *KolektrNamespace) GetJobProgressSummary(ctx context.Context, jobID string) (map[string]interface{}, error) {
-	return k.t.get(ctx, fmt.Sprintf("kolektr/jobs/%s/progress/summary", jobID), nil)
-}
-
-// GetPipelineEvents gets events for a pipeline run.
-func (k *KolektrNamespace) GetPipelineEvents(ctx context.Context, pipelineID string) (map[string]interface{}, error) {
-	return k.t.get(ctx, fmt.Sprintf("kolektr/pipeline/%s/events", pipelineID), nil)
-}
-
-// GetPipelineStream streams pipeline data.
-func (k *KolektrNamespace) GetPipelineStream(ctx context.Context, pipelineID string) (map[string]interface{}, error) {
-	return k.t.get(ctx, fmt.Sprintf("kolektr/pipeline/%s/stream", pipelineID), nil)
-}
-
-// ListProgressPhases lists all progress phases.
-func (k *KolektrNamespace) ListProgressPhases(ctx context.Context) (map[string]interface{}, error) {
-	return k.t.get(ctx, "kolektr/progress/phases", nil)
-}
-
-// GetProgressPhase gets info for a specific progress phase.
-func (k *KolektrNamespace) GetProgressPhase(ctx context.Context, phaseName string) (map[string]interface{}, error) {
-	return k.t.get(ctx, fmt.Sprintf("kolektr/progress/phases/%s", phaseName), nil)
-}
-
-// GetProgressPhaseSteps gets steps for a progress phase.
-func (k *KolektrNamespace) GetProgressPhaseSteps(ctx context.Context, phaseName string) (map[string]interface{}, error) {
-	return k.t.get(ctx, fmt.Sprintf("kolektr/progress/phases/%s/steps", phaseName), nil)
-}
-
-// GetProgressSummary gets overall progress summary.
-func (k *KolektrNamespace) GetProgressSummary(ctx context.Context) (map[string]interface{}, error) {
-	return k.t.get(ctx, "kolektr/progress/summary", nil)
-}
-
 // ListScrapers lists scraper configurations.
 func (k *KolektrNamespace) ListScrapers(ctx context.Context) (map[string]interface{}, error) {
 	return k.t.get(ctx, "kolektr/scrapers", nil)
