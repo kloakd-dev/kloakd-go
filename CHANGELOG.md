@@ -2,7 +2,53 @@
 
 All notable changes to the KLOAKD Go SDK are documented here.
 
-## [0.5.0] — unreleased
+## [0.6.0] — unreleased
+
+For the API deployed on 2 November 2026 (kobe-scraper 0bb0c6b5). No
+breaking changes: 0.5.0 code builds and behaves as before.
+
+### Added
+- Kolektr: `ExtractOptions.ItemSelector` and `ExtractHTMLOptions.ItemSelector`
+  send `schema_spec.item_selector` (GAP-API-11): one record per element
+  the CSS selector matches, each field's selector read inside it (first
+  match, or every match for `Type: "list"`; `Attribute` reads an attribute;
+  no match is nil; a field without `Selector` reads the item element). The
+  `{field: "css:selector"}` shorthand takes the item selector under the
+  key `"item_selector"` (not a field), and a full spec's `item_selector`
+  is sent as given. An empty or invalid selector, or one without fields,
+  is a 422 `ApiError` from the API. Without it the request is unchanged.
+- `CrawlOrchestratorOptions.ExtractItemSelector` for `Client.Crawl` /
+  `CrawlStream`, and `CrawlPage.Records` (every extracted record;
+  `StructuredData` is still the first).
+- Webgrph: `ListCrawlPages(ctx, crawlID, *CrawlPagesOptions{Cursor, Limit,
+  IncludeGrouping})` returns `*CrawlPagesResult{CrawlID, Nodes []PageNode,
+  NextCursor, Total, Raw}` (GAP-API-9/10). `IncludeGrouping` also lists the
+  tree's grouping folders; by default only fetched pages are listed.
+  `CrawlOptions.IncludeGrouping` does the same for `Webgrph.Crawl`.
+- `PageNode.IsGrouping` (`metadata.is_grouping` or a stored record's
+  `is_grouping`) and `PageNode.CrawlParentURL` (`crawl_parent_url`, carried
+  by stored page records such as a crawl stream's `discovery_response`; the
+  pages listing does not send it). A stored record's flat `title` now fills
+  `PageNode.Title`.
+- `ConcurrencyLimitError.ActiveRequests` (409 `concurrent_limit`
+  `active_requests`, GAP-BILL-13): every metered call holds one of the
+  organisation's work slots (Free 2, Starter 5, Pro 10, Pro+ 20, Developer
+  50, Enterprise 100). The 409 is not retried (unchanged).
+- `CrawlPagesDefaultLimit` (100), `CrawlPagesMaxLimit` (1000) and
+  `ErrInvalidPagesLimit`.
+
+### Changed
+- `GetCrawlPages` / `ListCrawlPages` refuse a limit outside 1–1000 (0 is the
+  API's default) before sending the request, with an error wrapping
+  `ErrInvalidPagesLimit` (the API answers 422). A cursor that is not a
+  non-negative integer is now a 422 `ApiError` from the API (it used to
+  restart at 0).
+- The API now counts only fetched pages in crawl status `total_pages` and
+  `max_depth_reached`, and lists only fetched pages by default; so do
+  `CrawlResult.TotalPages` and `Pages`.
+- Version 0.6.0 (`User-Agent: kloakd-sdk-go/0.6.0`, `X-Kloakd-SDK: go/0.6.0`).
+
+## [0.5.0] — 2026-10-28
 
 ### Breaking changes
 - `Parlyr.Chat` / `ChatStream` read the events the API sends

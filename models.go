@@ -88,6 +88,16 @@ type PageNode struct {
 	Title     *string
 	Children  []string
 	Metadata  map[string]interface{}
+	// IsGrouping is true for a grouping folder of the displayed tree
+	// (metadata.is_grouping): a display node that was never fetched. The
+	// pages listing returns them only with IncludeGrouping (0.6.0).
+	IsGrouping bool
+	// CrawlParentURL is the page the crawl found this page on, when the
+	// tree shows it under a grouping folder (crawl_parent_url). Only the
+	// stored page records carry it (a crawl stream's discovery_response
+	// pages); the pages listing does not, and by default already puts each
+	// page under that parent (ParentURL). nil when absent (0.6.0).
+	CrawlParentURL *string
 }
 
 // CrawlResult is returned by Webgrph.Crawl.
@@ -321,14 +331,18 @@ type ExtractionResult struct {
 
 // CrawlPage represents a single page result from the high-level Crawl() orchestrator.
 type CrawlPage struct {
-	Success        bool
-	URL            string
-	StatusCode     int
-	TierUsed       int
-	HTML           *string
+	Success    bool
+	URL        string
+	StatusCode int
+	TierUsed   int
+	HTML       *string
+	// StructuredData is the page's first extracted record.
 	StructuredData map[string]interface{}
-	ArtifactID     *string
-	Error          *string
+	// Records is every extracted record: one per item with
+	// ExtractItemSelector, otherwise at most one (0.6.0).
+	Records    []map[string]interface{}
+	ArtifactID *string
+	Error      *string
 	// ExtractionError is the error of the page's extraction, when
 	// ExtractSchema / ExtractFields was given and it failed.
 	ExtractionError *string
@@ -376,8 +390,12 @@ type CrawlOrchestratorOptions struct {
 	// ExtractSchema is the shorthand {field: "css:selector"} ("css:" is
 	// optional); ExtractFields is the explicit list. Either one extracts
 	// each fetched page with Kolektr.
-	ExtractSchema        map[string]string
-	ExtractFields        []SchemaField
+	ExtractSchema map[string]string
+	ExtractFields []SchemaField
+	// ExtractItemSelector extracts one record per repeated item on each
+	// page (schema_spec.item_selector; see ExtractOptions.ItemSelector).
+	// The records are in CrawlPage.Records (0.6.0).
+	ExtractItemSelector  string
 	IncludeExternalLinks bool
 	SessionArtifactID    string
 	// Scope, Budget and CaptureMode are the crawl policy (see CrawlOptions).

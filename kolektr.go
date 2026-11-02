@@ -19,11 +19,24 @@ type KolektrNamespace struct {
 type ExtractOptions struct {
 	// SchemaSpec describes the fields to extract (sent as schema_spec):
 	// either the API's own spec, {"fields": [{"name", "selector", ...}],
-	// "pagination", "max_pages", ...}, or the shorthand
-	// {field: "css:selector"} ("css:" is optional), which is converted.
+	// "item_selector", "pagination", "max_pages", ...}, or the shorthand
+	// {field: "css:selector"} ("css:" is optional), which is converted. In
+	// the shorthand the key "item_selector" is the item selector, not a
+	// field.
 	SchemaSpec map[string]interface{}
 	// Fields is the explicit field list; it replaces SchemaSpec's fields.
-	Fields            []SchemaField
+	Fields []SchemaField
+	// ItemSelector (schema_spec.item_selector, 0.6.0) is the CSS selector of
+	// the repeated item on a list page, e.g. "article.product_pod". Each
+	// matching element is one record and each field's selector is read
+	// inside it: the first match gives the value (every match for a field
+	// of Type "list"), its text or the field's Attribute; a field with no
+	// match in an item is nil; a field with no Selector is read from the
+	// item element itself. It needs at least one field; an empty or invalid
+	// CSS selector, or one without fields, is a 422 (ApiError).
+	// Without it the fields run against the whole page and give one
+	// record, as before. It overrides an item_selector in SchemaSpec.
+	ItemSelector      string
 	Level             string
 	FetchArtifactID   string
 	SessionArtifactID string
@@ -42,7 +55,7 @@ type PageOptions = ExtractOptions
 func (k *KolektrNamespace) Extract(ctx context.Context, targetURL string, opts *ExtractOptions) (*ExtractionResult, error) {
 	body := map[string]interface{}{"url": targetURL}
 	if opts != nil {
-		if spec := buildSchemaSpec(opts.SchemaSpec, opts.Fields); spec != nil {
+		if spec := buildItemSchemaSpec(opts.SchemaSpec, opts.Fields, opts.ItemSelector); spec != nil {
 			body["schema_spec"] = spec
 		}
 		if opts.Level != "" {
@@ -78,9 +91,10 @@ func (k *KolektrNamespace) Page(ctx context.Context, targetURL string, opts *Ext
 
 // ExtractHTMLOptions configures optional parameters for Kolektr.ExtractHTML.
 type ExtractHTMLOptions struct {
-	// SchemaSpec and Fields are as in ExtractOptions.
-	SchemaSpec map[string]interface{}
-	Fields     []SchemaField
+	// SchemaSpec, Fields and ItemSelector are as in ExtractOptions.
+	SchemaSpec   map[string]interface{}
+	Fields       []SchemaField
+	ItemSelector string
 }
 
 // ExtractHTML extracts structured data from raw HTML without making a network request.
@@ -90,7 +104,7 @@ func (k *KolektrNamespace) ExtractHTML(ctx context.Context, html, targetURL stri
 		"url":  targetURL,
 	}
 	if opts != nil {
-		if spec := buildSchemaSpec(opts.SchemaSpec, opts.Fields); spec != nil {
+		if spec := buildItemSchemaSpec(opts.SchemaSpec, opts.Fields, opts.ItemSelector); spec != nil {
 			body["schema_spec"] = spec
 		}
 	}
@@ -271,10 +285,29 @@ func parseExtractionResult(raw map[string]interface{}) *ExtractionResult {
 	}
 }
 
+// itemSelectorKey is schema_spec.item_selector; in the shorthand schema it
+// is the item selector, not a field name.
+const itemSelectorKey = "item_selector"
+
+// buildItemSchemaSpec is buildSchemaSpec with an item selector: a non-empty
+// itemSelector is sent as schema_spec.item_selector (it overrides one in
+// schema). The selector is sent as given; the API validates it.
+func buildItemSchemaSpec(schema map[string]interface{}, fields []SchemaField, itemSelector string) map[string]interface{} {
+	spec := buildSchemaSpec(schema, fields)
+	if itemSelector != "" {
+		if spec == nil {
+			spec = map[string]interface{}{}
+		}
+		spec[itemSelectorKey] = strings.TrimPrefix(itemSelector, "css:")
+	}
+	return spec
+}
+
 // buildSchemaSpec is the API's schema_spec (modules/kolektr/router.py
 // SchemaSpec): a spec with a "fields" list is sent as given, a shorthand
 // {field: "css:selector"} is converted to {"fields": [{name, selector}]}
-// (field names sorted), and fields, when given, replace the spec's fields.
+// (field names sorted; an "item_selector" key is kept as the item
+// selector), and fields, when given, replace the spec's fields.
 // It returns nil when there is nothing to send.
 func buildSchemaSpec(schema map[string]interface{}, fields []SchemaField) map[string]interface{} {
 	var spec map[string]interface{}
@@ -291,7 +324,9 @@ func buildSchemaSpec(schema map[string]interface{}, fields []SchemaField) map[st
 	default:
 		names := make([]string, 0, len(schema))
 		for name := range schema {
-			names = append(names, name)
+			if name != itemSelectorKey {
+				names = append(names, name)
+			}
 		}
 		sort.Strings(names)
 		list := make([]interface{}, 0, len(names))
@@ -310,6 +345,9 @@ func buildSchemaSpec(schema map[string]interface{}, fields []SchemaField) map[st
 			}
 		}
 		spec = map[string]interface{}{"fields": list}
+		if sel, ok := schema[itemSelectorKey].(string); ok && sel != "" {
+			spec[itemSelectorKey] = strings.TrimPrefix(sel, "css:")
+		}
 	}
 	if len(fields) > 0 {
 		if spec == nil {

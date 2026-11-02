@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Crawl is the high-level orchestrator that discovers, fetches, and optionally
@@ -189,6 +190,9 @@ func (c *Client) crawlPage(ctx context.Context, pageURL string, opts *CrawlOrche
 	if spec == nil {
 		return page, nil
 	}
+	if opts.ExtractItemSelector != "" {
+		spec[itemSelectorKey] = strings.TrimPrefix(opts.ExtractItemSelector, "css:")
+	}
 	extractOpts := &ExtractOptions{SchemaSpec: spec, SessionArtifactID: opts.SessionArtifactID}
 	if fetchResult.ArtifactID != nil {
 		extractOpts.FetchArtifactID = *fetchResult.ArtifactID
@@ -204,6 +208,7 @@ func (c *Client) crawlPage(ctx context.Context, pageURL string, opts *CrawlOrche
 		page.ExtractionError = extraction.Error
 	case len(extraction.Records) > 0:
 		page.StructuredData = extraction.Records[0]
+		page.Records = extraction.Records
 	}
 	return page, nil
 }

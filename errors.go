@@ -72,15 +72,26 @@ func (e *ForbiddenError) Error() string {
 	return fmt.Sprintf("ForbiddenError(%d): %s", e.StatusCode, e.Message)
 }
 
-// ConcurrencyLimitError is returned for HTTP 409 "concurrent_limit": the
-// organisation already runs as many crawls or jobs as its tier allows.
-// Retry when one finishes.
+// ConcurrencyLimitError is returned for HTTP 409 "concurrent_limit": all
+// of the organisation's work slots are in use. Every metered call holds one
+// slot while it runs (crawls and batches running or queued hold one each);
+// the plan sets how many run at once (Free 2, Starter 5, Pro 10, Pro+ 20,
+// Developer 50, Enterprise 100). The SDK does not retry it: try again when
+// one of the running calls or crawls finishes.
 type ConcurrencyLimitError struct {
 	KloakdError
-	Tier            string
+	// Tier is the organisation's plan (detail.tier).
+	Tier string
+	// ConcurrentLimit is how many slots the plan has (detail.concurrent_limit).
 	ConcurrentLimit int
-	ActiveCrawls    int
-	TestKeyID       string
+	// ActiveCrawls is the crawls and batches running or queued
+	// (detail.active_crawls).
+	ActiveCrawls int
+	// ActiveRequests is the other metered requests in flight
+	// (detail.active_requests; 0.6.0).
+	ActiveRequests int
+	// TestKeyID is set for a playground test key's own limit.
+	TestKeyID string
 }
 
 func (e *ConcurrencyLimitError) Error() string {
@@ -307,6 +318,7 @@ func raiseForStatus(statusCode int, body map[string]interface{}, headers http.He
 			Tier:            str("tier"),
 			ConcurrentLimit: int(num("concurrent_limit")),
 			ActiveCrawls:    int(num("active_crawls")),
+			ActiveRequests:  int(num("active_requests")),
 			TestKeyID:       str("test_key_id"),
 		}
 	case statusCode == 429 && code == "gb_exhausted":

@@ -157,6 +157,7 @@ analysis, err := client.Evadr.Analyze(ctx, url, nil)
 ```go
 // Crawl a site: starts the crawl, waits for it, returns every page
 crawl, err := client.Webgrph.Crawl(ctx, url, &kloakd.CrawlOptions{MaxDepth: 3, MaxPages: 100})
+// crawl.TotalPages and len(crawl.Pages) count fetched pages only
 
 // Or start it and follow it yourself
 started, err := client.Webgrph.StartCrawl(ctx, url, nil)
@@ -175,6 +176,15 @@ for event := range ch {
     fmt.Println(event.EventType, event.StageID, event.Message)
 }
 
+// The pages listing, one page at a time (Limit 1-1000, default 100). Only
+// fetched pages are listed; IncludeGrouping also returns the tree's
+// grouping folders (PageNode.IsGrouping), which were not fetched.
+pages, err := client.Webgrph.ListCrawlPages(ctx, crawl.CrawlID, &kloakd.CrawlPagesOptions{Limit: 500})
+for pages.NextCursor != "" {
+    pages, err = client.Webgrph.ListCrawlPages(ctx, crawl.CrawlID,
+        &kloakd.CrawlPagesOptions{Cursor: pages.NextCursor, Limit: 500})
+}
+
 // Discovery sessions: active only (true) or all (false)
 sessions, err := client.Webgrph.ListSessions(ctx, true)
 
@@ -189,6 +199,12 @@ site, err := client.Crawl(ctx, url, &kloakd.CrawlOrchestratorOptions{
     ExtractSchema: map[string]string{"title": "css:h1"},
 })
 fmt.Println(site.Success, site.PagesFetched, site.PagesFailed)
+
+// One record per repeated item on each page (CrawlPage.Records)
+site, err = client.Crawl(ctx, url, &kloakd.CrawlOrchestratorOptions{
+    ExtractItemSelector: "article.product_pod",
+    ExtractSchema:       map[string]string{"title": "css:h3 a", "price": "css:.price_color"},
+})
 ```
 
 A page that fails is recorded on the result; billing, entitlement,
@@ -280,7 +296,29 @@ data, err = client.Kolektr.Extract(ctx, url, &kloakd.ExtractOptions{
     Fields: []kloakd.SchemaField{{Name: "image", Selector: "img", Attribute: "src"}},
 })
 
-// From raw HTML
+// A list page: one record per repeated item. Each field's selector is read
+// inside the item: the first match (every match for Type "list"), its text
+// or Attribute; no match is nil; a field without Selector reads the item.
+books, err := client.Kolektr.Extract(ctx, "https://books.toscrape.com", &kloakd.ExtractOptions{
+    ItemSelector: "article.product_pod",
+    Fields: []kloakd.SchemaField{
+        {Name: "title", Selector: "h3 a", Attribute: "title"},
+        {Name: "price", Selector: ".price_color"},
+        {Name: "rating", Selector: "p.star-rating", Attribute: "class"},
+    },
+})
+fmt.Println(books.TotalRecords) // 20 records, one per book
+
+// The shorthand takes the item selector under "item_selector"
+books, err = client.Kolektr.Extract(ctx, "https://books.toscrape.com", &kloakd.ExtractOptions{
+    SchemaSpec: map[string]interface{}{
+        "item_selector": "article.product_pod",
+        "title":         "css:h3 a",
+        "price":         "css:.price_color",
+    },
+})
+
+// From raw HTML (ExtractHTMLOptions takes ItemSelector too)
 data, err = client.Kolektr.ExtractHTML(ctx, html, url, nil)
 
 // Lists take paging options
@@ -309,7 +347,8 @@ if err != nil {
     case errors.As(err, &rlErr):
         time.Sleep(time.Duration(rlErr.RetryAfter) * time.Second)
     case errors.As(err, &concErr):
-        log.Printf("%d of %d concurrent crawls running; wait for one", concErr.ActiveCrawls, concErr.ConcurrentLimit)
+        log.Printf("all %d work slots in use (%d crawls, %d requests); try again when one finishes",
+            concErr.ConcurrentLimit, concErr.ActiveCrawls, concErr.ActiveRequests)
     case errors.As(err, &authErr):
         log.Fatal("invalid API key")
     default:
@@ -318,14 +357,18 @@ if err != nil {
 }
 ```
 
-**Error types:** `KloakdError` (with `Code`, the API's error word), `AuthenticationError` (401), `PaymentRequiredError` (402), `NotEntitledError` (403 `not_entitled` / `tier_access_denied`, with `Module`, `Feature`, `CurrentTier`, `RequiredTier`), `ForbiddenError` (any other 403; `errors.As` with a `*ForbiddenError` also matches a `NotEntitledError`), `ConcurrencyLimitError` (409 `concurrent_limit`), `QuotaExceededError` (429 `gb_exhausted`), `RateLimitError` (429; `QuotaExhausted` for the playground quota), `UpstreamError` (502), `BillingUnavailableError` (503 `billing_unavailable`), `ApiError` (other 4xx/5xx; `JobID` on `job_failed` / `job_timeout` / `crawl_timeout`). A body that is not JSON becomes the message; a 422's `detail[]` is kept as `field: message; ...`.
+**Error types:** `KloakdError` (with `Code`, the API's error word), `AuthenticationError` (401), `PaymentRequiredError` (402), `NotEntitledError` (403 `not_entitled` / `tier_access_denied`, with `Module`, `Feature`, `CurrentTier`, `RequiredTier`), `ForbiddenError` (any other 403; `errors.As` with a `*ForbiddenError` also matches a `NotEntitledError`), `ConcurrencyLimitError` (409 `concurrent_limit`, with `Tier`, `ConcurrentLimit`, `ActiveCrawls`, `ActiveRequests`; not retried), `QuotaExceededError` (429 `gb_exhausted`), `RateLimitError` (429; `QuotaExhausted` for the playground quota), `UpstreamError` (502), `BillingUnavailableError` (503 `billing_unavailable`), `ApiError` (other 4xx/5xx; `JobID` on `job_failed` / `job_timeout` / `crawl_timeout`). A body that is not JSON becomes the message; a 422's `detail[]` is kept as `field: message; ...`.
+
+## Concurrency (work slots)
+
+Every metered call holds one of the organisation's work slots while it runs; a crawl or batch that is running or queued holds one too. The plan sets how many run at once: Free 2, Starter 5, Pro 10, Pro+ 20, Developer 50, Enterprise 100. A call made when every slot is in use is refused with 409 `concurrent_limit` (`ConcurrencyLimitError`: `ActiveCrawls` are the crawls and batches, `ActiveRequests` the other calls in flight). The SDK does not retry it; keep your own concurrency at or below the plan's limit, or try again when a call finishes.
 
 ## Retry Policy
 
 - 5xx answers (500, 502, 503, 504) and network errors: retried for `GET`, `HEAD` and `DELETE` only; a `POST`, `PUT` or `PATCH` may already have done its work, so it is not sent again
 - 429 `rate_limited`: retried on any method, waiting for the `Retry-After` header, else `retry_after`, else `reset_at`
 - 503 `billing_unavailable`: retried on any method (the request was not started)
-- Not retried: 4xx other than the above, 429 `gb_exhausted` and the playground quota (429 with `retry_after` 0 and no reset; waiting does not clear either)
+- Not retried: 4xx other than the above (including 409 `concurrent_limit`), 429 `gb_exhausted` and the playground quota (429 with `retry_after` 0 and no reset; waiting does not clear either)
 - Backoff without a hint: `1s × 2^attempt`, capped at 60 s
 - Default max retries: 3 (override via `Config.MaxRetries`; negative for none)
 - `Config.Timeout` applies to each attempt

@@ -2,6 +2,7 @@ package kloakd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -39,6 +40,10 @@ type CrawlOptions struct {
 	// (defaults 3 s and 60 min; ctx cancellation also stops the wait).
 	PollInterval time.Duration
 	PollTimeout  time.Duration
+	// IncludeGrouping makes Crawl also list the tree's grouping folders
+	// (PageNode.IsGrouping), which were not fetched. By default only
+	// fetched pages are listed, so len(Pages) matches TotalPages (0.6.0).
+	IncludeGrouping bool
 }
 
 // StartCrawl starts a site crawl and returns at once (HTTP 202) with its
@@ -140,6 +145,9 @@ func (w *WebgrphNamespace) Crawl(ctx context.Context, targetURL string, opts *Cr
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
+		if opts != nil && opts.IncludeGrouping {
+			params["include_grouping"] = "true"
+		}
 		page, err := w.t.get(ctx, pathf("webgrph/crawl/%s/pages", started.CrawlID), params)
 		if err != nil {
 			return nil, err
@@ -214,14 +222,90 @@ func (w *WebgrphNamespace) CrawlEvents(ctx context.Context, crawlID string) (<-c
 	return mapStream(ctx, raw, parsePipelineEvent), nil
 }
 
-// GetCrawlPages gets one page of discovered pages (cursor "" for the first).
-func (w *WebgrphNamespace) GetCrawlPages(ctx context.Context, crawlID, cursor string, limit int) (map[string]interface{}, error) {
-	params := map[string]string{}
-	if cursor != "" {
-		params["cursor"] = cursor
+// Bounds of the pages listing's limit (GET webgrph/crawl/{id}/pages).
+const (
+	CrawlPagesDefaultLimit = 100
+	CrawlPagesMaxLimit     = 1000
+)
+
+// ErrInvalidPagesLimit is wrapped by the error of a pages listing whose
+// limit is outside 1–CrawlPagesMaxLimit; no request is sent (the API would
+// answer 422).
+var ErrInvalidPagesLimit = errors.New("invalid crawl pages limit")
+
+// CrawlPagesOptions configures Webgrph.ListCrawlPages.
+type CrawlPagesOptions struct {
+	// Cursor is the previous page's next_cursor ("" for the first page).
+	// The API answers 422 for a cursor that is not a non-negative integer.
+	Cursor string
+	// Limit is the nodes per page, 1 to CrawlPagesMaxLimit; 0 sends none
+	// (the API's default, CrawlPagesDefaultLimit).
+	Limit int
+	// IncludeGrouping also lists the tree's grouping folders
+	// (metadata.is_grouping), which were not fetched. By default only
+	// fetched pages are listed, each under the page the crawl found it on,
+	// and total matches the crawl status's total_pages.
+	IncludeGrouping bool
+}
+
+// CrawlPagesResult is one page of a crawl's pages listing.
+type CrawlPagesResult struct {
+	CrawlID string
+	Nodes   []PageNode
+	// NextCursor is the cursor of the next page; "" on the last.
+	NextCursor string
+	// Total is the number of nodes the listing has across all pages.
+	Total int
+	// Raw is the answer as received.
+	Raw map[string]interface{}
+}
+
+// ListCrawlPages gets one page of a crawl's pages
+// (GET webgrph/crawl/{id}/pages) as PageNode values (0.6.0). A Limit
+// outside 1–CrawlPagesMaxLimit is refused before any request is sent.
+func (w *WebgrphNamespace) ListCrawlPages(ctx context.Context, crawlID string, opts *CrawlPagesOptions) (*CrawlPagesResult, error) {
+	var o CrawlPagesOptions
+	if opts != nil {
+		o = *opts
 	}
-	if limit > 0 {
-		params["limit"] = strconv.Itoa(limit)
+	raw, err := w.getCrawlPages(ctx, crawlID, o)
+	if err != nil {
+		return nil, err
+	}
+	res := &CrawlPagesResult{
+		CrawlID:    strField(raw, "crawl_id"),
+		Nodes:      []PageNode{},
+		NextCursor: strField(raw, "next_cursor"),
+		Total:      intField(raw, "total"),
+		Raw:        raw,
+	}
+	for _, n := range sliceMapField(raw, "nodes") {
+		res.Nodes = append(res.Nodes, parsePageNode(n))
+	}
+	return res, nil
+}
+
+// GetCrawlPages gets one page of discovered pages (cursor "" for the first;
+// limit 0 for the API's default of 100, else 1–1000). Only fetched pages
+// are listed; ListCrawlPages has IncludeGrouping and typed nodes.
+func (w *WebgrphNamespace) GetCrawlPages(ctx context.Context, crawlID, cursor string, limit int) (map[string]interface{}, error) {
+	return w.getCrawlPages(ctx, crawlID, CrawlPagesOptions{Cursor: cursor, Limit: limit})
+}
+
+func (w *WebgrphNamespace) getCrawlPages(ctx context.Context, crawlID string, o CrawlPagesOptions) (map[string]interface{}, error) {
+	if o.Limit < 0 || o.Limit > CrawlPagesMaxLimit {
+		return nil, fmt.Errorf("kloakd: %w: limit must be 1-%d (0 for the default of %d), got %d",
+			ErrInvalidPagesLimit, CrawlPagesMaxLimit, CrawlPagesDefaultLimit, o.Limit)
+	}
+	params := map[string]string{}
+	if o.Cursor != "" {
+		params["cursor"] = o.Cursor
+	}
+	if o.Limit > 0 {
+		params["limit"] = strconv.Itoa(o.Limit)
+	}
+	if o.IncludeGrouping {
+		params["include_grouping"] = "true"
 	}
 	return w.t.get(ctx, pathf("webgrph/crawl/%s/pages", crawlID), params)
 }
@@ -315,16 +399,29 @@ func parseCrawlResult(raw map[string]interface{}) *CrawlResult {
 	}
 }
 
+// parsePageNode reads a pages-listing node (HierarchyNode: metadata.title,
+// metadata.is_grouping) or a stored page record (flat title, is_grouping,
+// crawl_parent_url).
 func parsePageNode(raw map[string]interface{}) PageNode {
 	meta := mapField(raw, "metadata")
+	title := optStrField(meta, "title")
+	if title == nil {
+		title = optStrField(raw, "title")
+	}
+	crawlParent := optStrField(raw, "crawl_parent_url")
+	if crawlParent == nil {
+		crawlParent = optStrField(meta, "crawl_parent_url")
+	}
 	return PageNode{
-		ID:        strField(raw, "id"),
-		URL:       strField(raw, "url"),
-		ParentURL: optStrField(raw, "parent_url"),
-		Depth:     intField(raw, "depth"),
-		Category:  strField(raw, "category"),
-		Title:     optStrField(meta, "title"),
-		Children:  strSliceField(raw, "children_urls"),
-		Metadata:  meta,
+		ID:             strField(raw, "id"),
+		URL:            strField(raw, "url"),
+		ParentURL:      optStrField(raw, "parent_url"),
+		Depth:          intField(raw, "depth"),
+		Category:       strField(raw, "category"),
+		Title:          title,
+		Children:       strSliceField(raw, "children_urls"),
+		Metadata:       meta,
+		IsGrouping:     boolField(meta, "is_grouping") || boolField(raw, "is_grouping"),
+		CrawlParentURL: crawlParent,
 	}
 }

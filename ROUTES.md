@@ -1,5 +1,15 @@
 # Routes called by the Go SDK
 
+## 0.5.0 → 0.6.0
+
+Checked against kobe-scraper 1c74de2b (deployed code 0bb0c6b5): `modules/kolektr/router.py` (`SchemaSpec`), `core/extraction/item_records.py`, `modules/webgrph/router.py` (`get_crawl_pages`, `NodeMetadata`), `kernel/gateway/dependencies.py` (`hold_work_slot`). No route was added or removed; `testdata/routes.tsv` is unchanged.
+
+| Call | 0.6.0 |
+|---|---|
+| `POST kolektr/extract`, `POST kolektr/extract/html` | `schema_spec.item_selector` (`ItemSelector`, or `"item_selector"` in the shorthand); fields send `attribute` and `type` |
+| `GET webgrph/crawl/{crawl_id}/pages` | `limit` checked 1–1000 before sending; `include_grouping` (`ListCrawlPages`, `CrawlOptions.IncludeGrouping`); nodes read `metadata.is_grouping` |
+| any metered call | 409 `concurrent_limit` reads `active_requests` (`ConcurrencyLimitError.ActiveRequests`); not retried |
+
 ## 0.4.0 → 0.5.0
 
 Checked against kobe-scraper e5f15f7d (`modules/*/router.py`, `kernel/sync_handoff.py`). Every call is still in `testdata/routes.tsv` (`TestContract_EverySDKCallIsALiveRoute`); `TestContract_ParityRoutesAreCalled` checks the new calls. Path arguments are now escaped as one segment each (`pathf`).
