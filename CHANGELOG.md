@@ -2,7 +2,7 @@
 
 All notable changes to the KLOAKD Go SDK are documented here.
 
-## [0.6.0] — unreleased
+## [0.6.0] — 2026-11-03
 
 For the API deployed on 2 November 2026 (kobe-scraper 0bb0c6b5). No
 breaking changes: 0.5.0 code builds and behaves as before.
