@@ -4,8 +4,13 @@ import (
 	"context"
 )
 
-// NexusNamespace exposes the Strategy Engine module (5-layer cognitive pipeline).
-// Access via client.Nexus.
+// NexusNamespace exposes the Strategy Engine module: Analyze, Synthesize,
+// Verify and Reason. Access via client.Nexus.
+//
+// The API has no execute route (POST nexus/execute was removed), and
+// POST nexus/knowledge is not part of the public API, so the SDK has
+// neither. Analyze and Synthesize follow a request the API hands off as a
+// job (202, after about 85 s) to its result; see Config.PollInterval.
 type NexusNamespace struct {
 	t *transport
 }
@@ -41,46 +46,13 @@ func (n *NexusNamespace) Synthesize(ctx context.Context, targetURL, html, goal s
 	return parseNexusSynthesisResult(raw), nil
 }
 
-// Verify verifies the safety of a strategy before execution.
+// Verify checks the safety of a synthesized strategy.
 func (n *NexusNamespace) Verify(ctx context.Context, strategyID string) (*NexusVerifyResult, error) {
 	raw, err := n.t.post(ctx, "nexus/verify", map[string]interface{}{"strategy_id": strategyID})
 	if err != nil {
 		return nil, err
 	}
 	return parseNexusVerifyResult(raw), nil
-}
-
-// Execute runs a verified strategy against a URL. The result's
-// ExecutionResultID is the id to pass to Knowledge.
-//
-// Analyze, Synthesize and Execute follow a request the API hands off as a job
-// (202, after about 85 s) to its result; see Config.PollInterval.
-func (n *NexusNamespace) Execute(ctx context.Context, strategyID, targetURL string, options map[string]interface{}) (*NexusExecuteResult, error) {
-	body := map[string]interface{}{
-		"strategy_id": strategyID,
-		"url":         targetURL,
-	}
-	if len(options) > 0 {
-		body["options"] = options
-	}
-	raw, err := n.t.postFollowing(ctx, "nexus/execute", body, nil)
-	if err != nil {
-		return nil, err
-	}
-	return parseNexusExecuteResult(raw), nil
-}
-
-// Knowledge stores learned concepts and patterns from an execution result.
-// executionResultID is NexusExecuteResult.ExecutionResultID, returned by
-// Execute (execution_result_id).
-func (n *NexusNamespace) Knowledge(ctx context.Context, executionResultID string) (*NexusKnowledgeResult, error) {
-	raw, err := n.t.post(ctx, "nexus/knowledge", map[string]interface{}{
-		"execution_result_id": executionResultID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return parseNexusKnowledgeResult(raw), nil
 }
 
 // ReasonOptions configures optional parameters for Nexus.Reason.
@@ -150,27 +122,23 @@ func parseNexusVerifyResult(raw map[string]interface{}) *NexusVerifyResult {
 		Verified:    boolField(raw, "verified"),
 		SafetyScore: float64Field(raw, "safety_score"),
 		Violations:  strSliceField(raw, "violations"),
+
+		Status:               optStrField(raw, "status"),
+		RiskScore:            float64Field(raw, "risk_score"),
+		SafetyChecks:         parseNexusSafetyChecks(raw),
+		VerificationResultID: optStrField(raw, "verification_result_id"),
+		DurationMs:           intField(raw, "duration_ms"),
 	}
 }
 
-func parseNexusExecuteResult(raw map[string]interface{}) *NexusExecuteResult {
-	return &NexusExecuteResult{
-		StrategyID: strField(raw, "strategy_id"),
-		Success:    boolField(raw, "success"),
-		Records:    sliceMapField(raw, "records"),
-		ArtifactID: nestedArtifactID(raw),
-		DurationMs: intField(raw, "duration_ms"),
-		Error:      optStrField(raw, "error_message"),
-
-		ExecutionResultID: optStrField(raw, "execution_result_id"),
+func parseNexusSafetyChecks(raw map[string]interface{}) []NexusSafetyCheck {
+	checks := []NexusSafetyCheck{}
+	for _, c := range sliceMapField(raw, "safety_checks") {
+		checks = append(checks, NexusSafetyCheck{
+			Property: strField(c, "property"),
+			Passed:   boolField(c, "passed"),
+			Details:  strField(c, "details"),
+		})
 	}
-}
-
-func parseNexusKnowledgeResult(raw map[string]interface{}) *NexusKnowledgeResult {
-	return &NexusKnowledgeResult{
-		LearnedConcepts: sliceMapField(raw, "learned_concepts"),
-		Patterns:        sliceMapField(raw, "patterns"),
-		TotalPatterns:   intField(raw, "total_patterns"),
-		DurationMs:      intField(raw, "duration_ms"),
-	}
+	return checks
 }

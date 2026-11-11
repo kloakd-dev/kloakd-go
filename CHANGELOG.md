@@ -2,6 +2,35 @@
 
 All notable changes to the KLOAKD Go SDK are documented here.
 
+## [Unreleased]
+
+For the API on kobe-scraper integration/2026-11-12 (e5e358aa). **Breaking**:
+two methods are removed, so the next release is v0.7.0.
+
+### Removed
+- `Nexus.Execute` and `NexusExecuteResult`: the API removed
+  `POST nexus/execute`; the call could only fail.
+- `Nexus.Knowledge` and `NexusKnowledgeResult`: the route now takes
+  `{strategy_id, url, outcome}` (the old `{execution_result_id}` body is
+  refused) and is not part of the public API.
+
+### Added
+- Crawl, extract and download in one job (`client.Webgrph`):
+  `StartCrawlExtract`, `CrawlExtract`, `GetCrawlExtract`,
+  `WaitForCrawlExtract`, `ListCrawlExtractResults`,
+  `AllCrawlExtractResults`, `ListCrawlExtractPages`, `ExportCrawlExtract`
+  (an open `io.ReadCloser`), `DownloadCrawlExtract` (to a file),
+  `CancelCrawlExtract`, with their option and result types;
+  `ErrInvalidCrawlExtractLimit`, `ErrInvalidExportFormat`, `ExportJSON`,
+  `ExportNDJSON`, `ExportCSV`.
+- `Client.ExportBatchJob` and `Client.DownloadBatchJob`: a batch job's
+  results as json, ndjson or csv.
+- `NexusVerifyResult.Status`, `RiskScore`, `SafetyChecks`
+  (`NexusSafetyCheck`), `VerificationResultID`, `DurationMs`.
+
+### Changed
+- Exports are streamed and are not bound by `Config.Timeout`.
+
 ## [0.6.0] — 2026-11-03
 
 For the API deployed on 2 November 2026 (kobe-scraper 0bb0c6b5). No

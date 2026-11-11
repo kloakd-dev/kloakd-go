@@ -1,5 +1,24 @@
 # Routes called by the Go SDK
 
+## After 0.6.0 (unreleased)
+
+Checked against kobe-scraper integration/2026-11-12 (e5e358aa): `modules/nexus/router.py`, `modules/webgrph/crawl_extract_router.py`, `kernel/batch_export_router.py`, `scripts/generate_public_openapi.py` (`EXCLUDED`). `testdata/routes.tsv` was edited by hand: `POST nexus/execute` removed, the six crawl-extract routes and the batch export added (`TestContract_NexusExecuteIsGoneAndCrawlExtractIsCalled`).
+
+| Call | After 0.6.0 |
+|---|---|
+| `POST nexus/execute` | removed from the API; `Nexus.Execute` and `NexusExecuteResult` removed |
+| `POST nexus/knowledge` | body is now `{strategy_id, url, outcome}`; the route is left out of the public API; `Nexus.Knowledge` and `NexusKnowledgeResult` removed |
+| `POST nexus/verify` | also reads `status`, `risk_score`, `safety_checks`, `verification_result_id`, `duration_ms` |
+| `POST webgrph/crawl-extract` | new: `StartCrawlExtract`, `CrawlExtract`; answers 202 |
+| `GET webgrph/crawl-extract/{job_id}` | new: `GetCrawlExtract`, `WaitForCrawlExtract` |
+| `GET webgrph/crawl-extract/{job_id}/results` | new: `ListCrawlExtractResults`, `AllCrawlExtractResults`; `limit` (1–1000), `cursor`, `shape`, `page_type`, `kind` |
+| `GET webgrph/crawl-extract/{job_id}/pages` | new: `ListCrawlExtractPages`; `limit` (1–1000), `offset`, `status` |
+| `GET webgrph/crawl-extract/{job_id}/export` | new: `ExportCrawlExtract` (stream), `DownloadCrawlExtract` (file); `format=json\|ndjson\|csv`, `shape`, `page_type`, `kind`; reads `X-Job-Status` and the `Content-Disposition` file name |
+| `POST webgrph/crawl-extract/{job_id}/cancel` | new: `CancelCrawlExtract`; 409 once the job has ended |
+| `GET batch-jobs/{batch_job_id}/export` | new: `Client.ExportBatchJob`, `Client.DownloadBatchJob` |
+
+The API also hands off `POST scraping/unified` (202); the SDK has no method for it.
+
 ## 0.5.0 → 0.6.0
 
 Checked against kobe-scraper 1c74de2b (deployed code 0bb0c6b5): `modules/kolektr/router.py` (`SchemaSpec`), `core/extraction/item_records.py`, `modules/webgrph/router.py` (`get_crawl_pages`, `NodeMetadata`), `kernel/gateway/dependencies.py` (`hold_work_slot`). No route was added or removed; `testdata/routes.tsv` is unchanged.

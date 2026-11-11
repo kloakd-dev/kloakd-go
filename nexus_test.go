@@ -50,35 +50,33 @@ func TestNexus_Synthesize(t *testing.T) {
 	}
 }
 
-func TestNexus_VerifyExecuteKnowledge(t *testing.T) {
-	_, server := newRouteServer(map[string]http.HandlerFunc{
+func TestNexus_Verify_ReadsTheVerifyResponse(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
 		"POST nexus/verify": jsonHandler(200, map[string]interface{}{
-			"strategy_id": "st-1", "verified": true, "safety_score": 0.95, "violations": []interface{}{},
-		}),
-		"POST nexus/execute": jsonHandler(200, map[string]interface{}{
-			"url": "https://example.com", "strategy_id": "st-1", "success": true,
-			"records": []interface{}{map[string]interface{}{"a": 1}}, "duration_ms": float64(12),
-		}),
-		"POST nexus/knowledge": jsonHandler(200, map[string]interface{}{
-			"execution_result_id": "ex-1", "learned_concepts": []interface{}{}, "patterns": []interface{}{map[string]interface{}{}},
-			"total_patterns": float64(1),
+			"strategy_id": "st-1", "verified": false, "safety_score": 0.4, "violations": []interface{}{"unbounded_loop"},
+			"verification_result_id": "vr-1", "status": "unsafe", "risk_score": 0.6, "duration_ms": float64(31),
+			"safety_checks": []interface{}{
+				map[string]interface{}{"property": "terminates", "passed": false, "details": "loop without bound"},
+				map[string]interface{}{"property": "no_writes", "passed": true},
+			},
 		}),
 	})
 	defer server.Close()
-	client := newTestClient(server)
-	ctx := context.Background()
 
-	verify, err := client.Nexus.Verify(ctx, "st-1")
-	if err != nil || !verify.Verified || verify.SafetyScore != 0.95 {
-		t.Fatalf("verify: %+v %v", verify, err)
+	v, err := newTestClient(server).Nexus.Verify(context.Background(), "st-1")
+	if err != nil {
+		t.Fatal(err)
 	}
-	exec, err := client.Nexus.Execute(ctx, "st-1", "https://example.com", nil)
-	if err != nil || !exec.Success || len(exec.Records) != 1 || exec.DurationMs != 12 {
-		t.Fatalf("execute: %+v %v", exec, err)
+	if v.Verified || v.SafetyScore != 0.4 || len(v.Violations) != 1 || v.Status == nil || *v.Status != "unsafe" ||
+		v.RiskScore != 0.6 || v.DurationMs != 31 || v.VerificationResultID == nil || *v.VerificationResultID != "vr-1" {
+		t.Errorf("unexpected result: %+v", v)
 	}
-	knowledge, err := client.Nexus.Knowledge(ctx, "ex-1")
-	if err != nil || knowledge.TotalPatterns != 1 || len(knowledge.Patterns) != 1 {
-		t.Fatalf("knowledge: %+v %v", knowledge, err)
+	if len(v.SafetyChecks) != 2 || v.SafetyChecks[0] != (NexusSafetyCheck{"terminates", false, "loop without bound"}) ||
+		v.SafetyChecks[1] != (NexusSafetyCheck{"no_writes", true, ""}) {
+		t.Errorf("unexpected safety checks: %+v", v.SafetyChecks)
+	}
+	if rs.bodies["POST nexus/verify"]["strategy_id"] != "st-1" {
+		t.Errorf("unexpected body: %v", rs.bodies["POST nexus/verify"])
 	}
 }
 

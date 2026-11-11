@@ -92,7 +92,7 @@ continues as a job: the API answers 202 with a `job_id` and `poll_url`, and
 the SDK polls `poll_url` (waits grow 1.5× from `PollInterval`, at most 15 s)
 and returns the same typed result a direct answer would have. This applies to
 `Evadr.Fetch`, `Kolektr.Extract`, `Fetchyr.Authenticate`, `DetectForms`,
-`FillForm`, `DetectMFA` and `Nexus.Analyze`, `Synthesize`, `Execute`. A
+`FillForm`, `DetectMFA` and `Nexus.Analyze`, `Synthesize`. A
 failed or expired job is an `*kloakd.ApiError` with `Code` `"job_failed"`; a
 job still running at `PollTimeout` has `Code` `"job_timeout"`; `JobID` names
 the job. Cancelling `ctx` stops the wait.
@@ -192,6 +192,44 @@ sessions, err := client.Webgrph.ListSessions(ctx, true)
 view, err := client.Webgrph.ReaderView(ctx, url, &kloakd.ReaderViewOptions{CrawlID: crawl.CrawlID})
 ```
 
+### Crawl, extract and download in one job
+
+One job crawls a site, extracts every page and keeps the rows for download.
+It needs a plan with Kolektr, and a live key (a test key is refused).
+
+```go
+job, err := client.Webgrph.StartCrawlExtract(ctx, url, &kloakd.CrawlExtractOptions{
+    MaxPages: 200,
+    Extract:  &kloakd.CrawlExtractSpec{Fields: []string{"title", "price"}},
+})
+done, err := client.Webgrph.WaitForCrawlExtract(ctx, job.JobID, nil)
+fmt.Println(done.Status, done.Progress.Items, done.Shapes)
+
+// Rows, 100 a page by default (1-1000), following NextCursor
+rows, err := client.Webgrph.AllCrawlExtractResults(ctx, job.JobID,
+    &kloakd.CrawlExtractResultsOptions{Kind: "item"})
+
+// The whole set as a file (json, ndjson or csv), streamed to disk
+saved, err := client.Webgrph.DownloadCrawlExtract(ctx, job.JobID, "rows.csv",
+    &kloakd.CrawlExtractExportOptions{Format: kloakd.ExportCSV})
+fmt.Println(saved.Bytes, saved.JobStatus)
+
+// Or as a stream
+dl, err := client.Webgrph.ExportCrawlExtract(ctx, job.JobID, nil)
+defer dl.Body.Close()
+```
+
+`CrawlExtract` starts the job and waits for it: a failed job is an
+`*kloakd.ApiError` with `Code` `"job_failed"`, a cancelled one is returned.
+An export of a job that is still running, or that failed, holds the rows
+written so far: check `JobStatus`. `ListCrawlExtractPages` lists each page
+with its status and method; `CancelCrawlExtract` stops a job (409 once it
+has ended). Exports are not bound by `Timeout`; `ctx` ends them.
+
+`client.ExportBatchJob(ctx, batchJobID, format)` and
+`client.DownloadBatchJob(ctx, batchJobID, path, format)` do the same for a
+batch job's results.
+
 ### `client.Crawl` — discover, fetch and extract in one call
 
 ```go
@@ -237,12 +275,11 @@ page, _       := client.Evadr.Fetch(ctx, url, nil)
 perception, _ := client.Nexus.Analyze(ctx, url, *page.HTML, nil)
 strategy, _   := client.Nexus.Synthesize(ctx, url, *page.HTML, "product prices")
 verified, _   := client.Nexus.Verify(ctx, strategy.StrategyID)
-result, _     := client.Nexus.Execute(ctx, strategy.StrategyID, url, nil)
-if result.ExecutionResultID != nil {
-    learned, _ := client.Nexus.Knowledge(ctx, *result.ExecutionResultID)
-    fmt.Println(learned.TotalPatterns)
-}
+fmt.Println(verified.Verified, verified.SafetyChecks)
 ```
+
+The API has no execute route, and its knowledge route is not part of the
+public API; the SDK has neither.
 
 ### `client.Parlyr` — Conversational NLP
 

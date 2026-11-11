@@ -195,8 +195,8 @@ func liveRoutes(t *testing.T) map[string]bool {
 // sdkCalls scans the SDK's source for every route it calls, as
 // "METHOD path" with parameters as {}.
 func sdkCalls(t *testing.T) map[string]bool {
-	call := regexp.MustCompile(`\.t\.(get|getList|getRaw|post|postRaw|postFollowing|patch|delete|postStream|getStream|do|request)\(ctx,\s*(?:http\.Method(\w+),\s*)?(?:fmt\.Sprintf\(|pathf\()?"([^"]+)"`)
-	verbs := map[string]string{"get": "GET", "getList": "GET", "getRaw": "GET", "post": "POST", "postRaw": "POST",
+	call := regexp.MustCompile(`\.t\.(get|getList|getRaw|download|post|postRaw|postFollowing|patch|delete|postStream|getStream|do|request)\(ctx,\s*(?:http\.Method(\w+),\s*)?(?:fmt\.Sprintf\(|pathf\()?"([^"]+)"`)
+	verbs := map[string]string{"get": "GET", "getList": "GET", "getRaw": "GET", "download": "GET", "post": "POST", "postRaw": "POST",
 		"postFollowing": "POST", "patch": "PATCH", "delete": "DELETE", "postStream": "POST", "getStream": "GET"}
 	files, _ := filepath.Glob("*.go")
 	calls := map[string]bool{}
@@ -288,6 +288,39 @@ func TestContract_DeletedRoutesAreGoneAndTheHandOffPollIsLive(t *testing.T) {
 	for key := range calls {
 		if strings.Contains(key, " nexus/recommendations/") || strings.Contains(key, " webgrph/analytics/") {
 			t.Errorf("the SDK still calls %s", key)
+		}
+	}
+}
+
+// After 0.6.0 (kobe-scraper integration/2026-11-12, e5e358aa): POST
+// nexus/execute is removed from the API; POST nexus/knowledge is still a
+// route but is left out of the public API
+// (scripts/generate_public_openapi.py EXCLUDED), so the SDK does not call
+// it; the crawl-extract job and the batch export are new.
+func TestContract_NexusExecuteIsGoneAndCrawlExtractIsCalled(t *testing.T) {
+	live, calls := liveRoutes(t), sdkCalls(t)
+	if live["POST nexus/execute"] {
+		t.Error("POST nexus/execute is removed but still in testdata/routes.tsv")
+	}
+	if !live["POST nexus/knowledge"] {
+		t.Error("POST nexus/knowledge still exists and should stay in testdata/routes.tsv")
+	}
+	for _, key := range []string{"POST nexus/execute", "POST nexus/knowledge"} {
+		if calls[key] {
+			t.Errorf("the SDK still calls %s", key)
+		}
+	}
+	for _, key := range []string{
+		"POST webgrph/crawl-extract", "GET webgrph/crawl-extract/{}",
+		"GET webgrph/crawl-extract/{}/results", "GET webgrph/crawl-extract/{}/pages",
+		"GET webgrph/crawl-extract/{}/export", "POST webgrph/crawl-extract/{}/cancel",
+		"GET batch-jobs/{}/export",
+	} {
+		if !live[key] {
+			t.Errorf("%s missing from testdata/routes.tsv", key)
+		}
+		if !calls[key] {
+			t.Errorf("the SDK does not call %s", key)
 		}
 	}
 }
