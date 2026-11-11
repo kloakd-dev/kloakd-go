@@ -4,8 +4,8 @@ All notable changes to the KLOAKD Go SDK are documented here.
 
 ## [Unreleased]
 
-For the API on kobe-scraper integration/2026-11-12 (e5e358aa). **Breaking**:
-two methods are removed, so the next release is v0.7.0.
+For the API at kobe-scraper 6bd19e9b. **Breaking**: two methods are
+removed, so the next release is v0.7.0.
 
 ### Removed
 - `Nexus.Execute` and `NexusExecuteResult`: the API removed
@@ -27,9 +27,41 @@ two methods are removed, so the next release is v0.7.0.
   results as json, ndjson or csv.
 - `NexusVerifyResult.Status`, `RiskScore`, `SafetyChecks`
   (`NexusSafetyCheck`), `VerificationResultID`, `DurationMs`.
+- Held crawls. A crawl the account cannot pay for now is paused by the
+  API with status `held_quota`; it is not a failure. `CrawlResult.Held`
+  and `Message`, `SiteCrawlResult.CrawlID`, `Status`, `Held`, `Message`,
+  `CrawlExtractStatus.Held`; `Client.CrawlStream` puts `held`, `status`
+  and `crawl_id` in the metadata of its `discovery_complete` and
+  `crawl_complete` events.
+- `Webgrph.WaitForCrawl(ctx, crawlID, poll)`: waits for a crawl that was
+  started earlier, or resumes waiting for a held one.
+- What a crawl did: `CrawlResult.IsPartial`, `PartialReason`, `Resumable`,
+  `PagesDiscovered`, `PagesFetched`, `PagesUnfetched`, `ErrorCode`;
+  `PageNode.FetchStatus`, `FetchError`.
+- `Webgrph.ContinueCrawl(ctx, crawlID)` (`CrawlContinueResult`):
+  `POST webgrph/crawl/{crawl_id}/continue`, for a crawl with
+  `Resumable` true.
+- `CrawlExtractStatus.Crawl` (`CrawlExtractCrawl`): the crawl's own
+  status, partial reason and page counts on a crawl-extract job.
+- `ExportDownload.Crawl` and `SavedExport.Crawl` (`ExportCrawl`): the
+  `X-Crawl-*` headers of a crawl-extract export; nil when the response
+  has none (a batch export has none).
+- Login sessions for the caller's own account (`client.Fetchyr`):
+  `StartLoginSession` (`LoginSessionOptions`, `LoginCookie`,
+  `LoginSession`), `GetSession` (`SessionStatus`), `ResumeSession`.
+- `ExtractionResult.Level`, `LevelReason`, `LoginOptions`.
 
 ### Changed
 - Exports are streamed and are not bound by `Config.Timeout`.
+- `Webgrph.Crawl` and `Client.Crawl` return when the crawl is held
+  (`Held` true, `Success` false, no error); `Webgrph.CrawlAll` then
+  returns no pages and no error. Before, they polled until
+  `crawl_timeout`.
+- `Webgrph.WaitForCrawlExtract` and `Webgrph.CrawlExtract` return when
+  the job's crawl is held (`Held` true). Before, they polled until
+  `job_timeout`.
+- `testdata/routes.tsv` is the route list of kobe-scraper 6bd19e9b
+  (292 routes).
 
 ## [0.6.0] — 2026-11-03
 

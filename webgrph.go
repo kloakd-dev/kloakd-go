@@ -47,7 +47,8 @@ type CrawlOptions struct {
 }
 
 // StartCrawl starts a site crawl and returns at once (HTTP 202) with its
-// crawl ID; follow it with GetCrawlStatus, CrawlEvents or Crawl.
+// crawl ID; follow it with WaitForCrawl, GetCrawlStatus or CrawlEvents. The
+// answer has no status: Status and the outcome fields are empty here.
 func (w *WebgrphNamespace) StartCrawl(ctx context.Context, targetURL string, opts *CrawlOptions) (*CrawlResult, error) {
 	body := map[string]interface{}{"url": targetURL}
 	if opts != nil {
@@ -83,8 +84,12 @@ func (w *WebgrphNamespace) StartCrawl(ctx context.Context, targetURL string, opt
 	return parseCrawlResult(raw), nil
 }
 
-// Crawl starts a site crawl, waits for it to finish, and returns every
+// Crawl starts a site crawl, waits for it to end, and returns every
 // discovered page (GET webgrph/crawl/{id}/pages, followed to the end).
+//
+// The wait also ends, without an error, when the crawl is held: Status is
+// "held_quota", Held is true, Success is false, Error is nil, Message is the
+// API's text and no pages are loaded. See WaitForCrawl.
 func (w *WebgrphNamespace) Crawl(ctx context.Context, targetURL string, opts *CrawlOptions) (*CrawlResult, error) {
 	started, err := w.StartCrawl(ctx, targetURL, opts)
 	if err != nil {
@@ -93,49 +98,69 @@ func (w *WebgrphNamespace) Crawl(ctx context.Context, targetURL string, opts *Cr
 	if started.CrawlID == "" {
 		return started, nil
 	}
-	interval, limit := DefaultCrawlPollInterval, DefaultCrawlPollTimeout
+	o := CrawlOptions{}
 	if opts != nil {
-		if opts.PollInterval > 0 {
-			interval = opts.PollInterval
-		}
-		if opts.PollTimeout > 0 {
-			limit = opts.PollTimeout
-		}
+		o = *opts
 	}
-	deadline := time.Now().Add(limit)
+	result, err := w.waitForCrawl(ctx, started.CrawlID, &PollOptions{Interval: o.PollInterval, Timeout: o.PollTimeout}, o.IncludeGrouping)
+	if err != nil {
+		return nil, err
+	}
+	result.URL = targetURL
+	return result, nil
+}
+
+// WaitForCrawl waits for a crawl that was already started (StartCrawl, or
+// an earlier Crawl or WaitForCrawl) and returns its result with every page,
+// as Crawl does. poll may be nil (3 s, 60 min); a crawl still running at
+// the timeout is an *ApiError with Code "crawl_timeout" and the crawl id in
+// JobID. URL is empty: the status route does not send the crawl's URL.
+//
+// A held crawl is not an error and not a failure. When the organization's
+// quota runs out the API pauses the crawl: its status is "held_quota". The
+// wait then stops and returns Status "held_quota", Held true, Success
+// false, Error nil, Message with the API's text, and no pages. The crawl
+// resumes by itself, on the same crawl id, when quota returns (an upgrade,
+// a top-up or the next period); call WaitForCrawl with that id again later.
+// A crawl held for 30 days ends as "failed" with ErrorCode
+// "held_quota_expired".
+//
+// A crawl that stopped early has IsPartial true and a PartialReason; when
+// Resumable is true, ContinueCrawl fetches the rest.
+func (w *WebgrphNamespace) WaitForCrawl(ctx context.Context, crawlID string, poll *PollOptions) (*CrawlResult, error) {
+	return w.waitForCrawl(ctx, crawlID, poll, false)
+}
+
+func (w *WebgrphNamespace) waitForCrawl(ctx context.Context, crawlID string, poll *PollOptions, includeGrouping bool) (*CrawlResult, error) {
+	opts := PollOptions{Interval: DefaultCrawlPollInterval, Timeout: DefaultCrawlPollTimeout}
+	if poll != nil {
+		opts = poll.or(opts)
+	}
+	deadline := time.Now().Add(opts.Timeout)
 	var status map[string]interface{}
 	for {
-		status, err = w.GetCrawlStatus(ctx, started.CrawlID)
+		var err error
+		status, err = w.GetCrawlStatus(ctx, crawlID)
 		if err != nil {
 			return nil, err
 		}
 		state := strField(status, "status")
-		if state == "completed" || state == "failed" || state == "cancelled" {
+		if state == "completed" || state == "failed" || state == "cancelled" || state == crawlHeldQuota {
 			break
 		}
 		if time.Now().After(deadline) {
 			return nil, &ApiError{KloakdError: KloakdError{
-				Message: fmt.Sprintf("crawl %s still %s after %s", started.CrawlID, state, limit), Code: "crawl_timeout",
-			}, JobID: started.CrawlID}
+				Message: fmt.Sprintf("crawl %s still %s after %s", crawlID, state, opts.Timeout), Code: "crawl_timeout",
+			}, JobID: crawlID}
 		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(interval):
+		case <-time.After(opts.Interval):
 		}
 	}
 
-	result := &CrawlResult{
-		Success:         strField(status, "status") == "completed",
-		CrawlID:         started.CrawlID,
-		URL:             targetURL,
-		Status:          strField(status, "status"),
-		TotalPages:      intField(status, "total_pages"),
-		MaxDepthReached: intField(status, "max_depth_reached"),
-		ArtifactID:      optStrField(status, "artifact_id"),
-		Error:           optStrField(status, "error"),
-		Pages:           []PageNode{},
-	}
+	result := crawlResultFromStatus(crawlID, status)
 	if !result.Success {
 		return result, nil
 	}
@@ -145,10 +170,10 @@ func (w *WebgrphNamespace) Crawl(ctx context.Context, targetURL string, opts *Cr
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
-		if opts != nil && opts.IncludeGrouping {
+		if includeGrouping {
 			params["include_grouping"] = "true"
 		}
-		page, err := w.t.get(ctx, pathf("webgrph/crawl/%s/pages", started.CrawlID), params)
+		page, err := w.t.get(ctx, pathf("webgrph/crawl/%s/pages", crawlID), params)
 		if err != nil {
 			return nil, err
 		}
@@ -164,7 +189,66 @@ func (w *WebgrphNamespace) Crawl(ctx context.Context, targetURL string, opts *Cr
 	return result, nil
 }
 
-// CrawlAll is Crawl, returning only the pages.
+// crawlHeldQuota is the status of a crawl (or of the crawl of a
+// crawl-extract job) the API paused because the organization's quota ran
+// out (billing/held_work.py). It is a pause, not an end.
+const crawlHeldQuota = "held_quota"
+
+// crawlResultFromStatus reads a crawl status body (GET webgrph/crawl/{id}).
+// The body has no url.
+func crawlResultFromStatus(crawlID string, status map[string]interface{}) *CrawlResult {
+	state := strField(status, "status")
+	return &CrawlResult{
+		Success:         state == "completed",
+		CrawlID:         crawlID,
+		Status:          state,
+		TotalPages:      intField(status, "total_pages"),
+		MaxDepthReached: intField(status, "max_depth_reached"),
+		ArtifactID:      optStrField(status, "artifact_id"),
+		Error:           optStrField(status, "error"),
+		Pages:           []PageNode{},
+		Held:            state == crawlHeldQuota,
+		Message:         optStrField(status, "message"),
+		IsPartial:       optBoolField(status, "is_partial"),
+		PartialReason:   optStrField(status, "partial_reason"),
+		Resumable:       boolField(status, "resumable"),
+		PagesDiscovered: optIntField(status, "pages_discovered"),
+		PagesFetched:    optIntField(status, "pages_fetched"),
+		PagesUnfetched:  optIntField(status, "pages_unfetched"),
+		ErrorCode:       optStrField(status, "error_code"),
+	}
+}
+
+// CrawlContinueResult is returned by Webgrph.ContinueCrawl.
+type CrawlContinueResult struct {
+	Success bool
+	CrawlID string
+	// Status is "queued" once the API has accepted the continuation.
+	Status string
+}
+
+// ContinueCrawl asks the API to fetch the rest of a crawl that stopped at
+// its time budget (POST webgrph/crawl/{id}/continue, answered 202). It is
+// only for a crawl that has ended and whose result has Resumable true; the
+// crawl keeps its id, so wait for it again with WaitForCrawl. For any other
+// crawl (not ended, not stopped at its time budget, or already being
+// continued) the API answers 409, returned as an *ApiError.
+func (w *WebgrphNamespace) ContinueCrawl(ctx context.Context, crawlID string) (*CrawlContinueResult, error) {
+	raw, err := w.t.post(ctx, pathf("webgrph/crawl/%s/continue", crawlID), nil)
+	if err != nil {
+		return nil, err
+	}
+	return &CrawlContinueResult{
+		Success: boolField(raw, "success"),
+		CrawlID: strField(raw, "crawl_id"),
+		Status:  strField(raw, "status"),
+	}, nil
+}
+
+// CrawlAll is Crawl, returning only the pages. It returns no pages and no
+// error for a crawl that failed, was cancelled or is held for quota
+// ("held_quota"); use Crawl or WaitForCrawl to tell these apart (Status,
+// Held, Error).
 func (w *WebgrphNamespace) CrawlAll(ctx context.Context, targetURL string, opts *CrawlOptions) ([]PageNode, error) {
 	result, err := w.Crawl(ctx, targetURL, opts)
 	if err != nil {
@@ -186,7 +270,8 @@ type CrawlStreamOptions struct {
 
 // CrawlStream starts a crawl and streams its events
 // (GET webgrph/crawl/{crawl_id}/events). The channel closes when the crawl
-// ends or ctx is cancelled; if reading the stream failed, the last event
+// ends, when it is held for quota (status "held_quota"; see WaitForCrawl)
+// or when ctx is cancelled; if reading the stream failed, the last event
 // carries Err.
 func (w *WebgrphNamespace) CrawlStream(ctx context.Context, targetURL string, opts *CrawlStreamOptions) (<-chan CrawlEvent, error) {
 	crawlOpts := &CrawlOptions{}
@@ -206,7 +291,11 @@ func (w *WebgrphNamespace) CrawlStream(ctx context.Context, targetURL string, op
 	return w.CrawlEvents(ctx, started.CrawlID)
 }
 
-// GetCrawlStatus polls crawl status and stats.
+// GetCrawlStatus gets a crawl's status body as the API sends it: status
+// (running, completed, failed, cancelled or held_quota), total_pages,
+// message, and the outcome fields CrawlResult names (is_partial,
+// partial_reason, resumable, pages_discovered, pages_fetched,
+// pages_unfetched, error_code).
 func (w *WebgrphNamespace) GetCrawlStatus(ctx context.Context, crawlID string) (map[string]interface{}, error) {
 	return w.t.get(ctx, pathf("webgrph/crawl/%s", crawlID), nil)
 }
@@ -400,8 +489,8 @@ func parseCrawlResult(raw map[string]interface{}) *CrawlResult {
 }
 
 // parsePageNode reads a pages-listing node (HierarchyNode: metadata.title,
-// metadata.is_grouping) or a stored page record (flat title, is_grouping,
-// crawl_parent_url).
+// metadata.is_grouping, metadata.fetch_status, metadata.fetch_error) or a
+// stored page record (flat title, is_grouping, crawl_parent_url).
 func parsePageNode(raw map[string]interface{}) PageNode {
 	meta := mapField(raw, "metadata")
 	title := optStrField(meta, "title")
@@ -423,5 +512,7 @@ func parsePageNode(raw map[string]interface{}) PageNode {
 		Metadata:       meta,
 		IsGrouping:     boolField(meta, "is_grouping") || boolField(raw, "is_grouping"),
 		CrawlParentURL: crawlParent,
+		FetchStatus:    optStrField(meta, "fetch_status"),
+		FetchError:     optStrField(meta, "fetch_error"),
 	}
 }

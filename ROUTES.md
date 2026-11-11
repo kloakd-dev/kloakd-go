@@ -1,8 +1,35 @@
 # Routes called by the Go SDK
 
-## After 0.6.0 (unreleased)
+## After 0.6.0 (unreleased): checked against kobe-scraper 6bd19e9b
 
-Checked against kobe-scraper integration/2026-11-12 (e5e358aa): `modules/nexus/router.py`, `modules/webgrph/crawl_extract_router.py`, `kernel/batch_export_router.py`, `scripts/generate_public_openapi.py` (`EXCLUDED`). `testdata/routes.tsv` was edited by hand: `POST nexus/execute` removed, the six crawl-extract routes and the batch export added (`TestContract_NexusExecuteIsGoneAndCrawlExtractIsCalled`).
+Checked against kobe-scraper main at 6bd19e9b: `modules/webgrph/router.py` (`CrawlStatusResponse`, `get_crawl_status`, `continue_crawl`, `NodeMetadata`), `modules/webgrph/crawl_extract_router.py` (`_crawl_headers`, `get_crawl_extract`), `modules/webgrph/crawl_extract.py` (`crawl_truth`), `billing/held_work.py`, `modules/fetchyr/router.py` (`LoginSessionRequest`, `LoginSessionResponse`, `SessionStatusResponse`), `modules/kolektr/router.py` (`ExtractResponse`), `kernel/batch_export_router.py`. `testdata/routes.tsv` is the route list of that commit (292 rows), replacing the hand-edited copy; `TestContract_ContinueAndLoginSessionRoutesAreLiveAndCalled` checks the new calls.
+
+| Call | Change |
+|---|---|
+| `GET webgrph/crawl/{crawl_id}` | `Crawl` and the new `WaitForCrawl` stop at `held_quota` (not an error: `Held`, `Message`); results read `is_partial`, `partial_reason`, `resumable`, `pages_discovered`, `pages_fetched`, `pages_unfetched`, `error_code`, `message` |
+| `POST webgrph/crawl/{crawl_id}/continue` | new: `ContinueCrawl`; answers 202 `{success, crawl_id, status}`; 409 for a crawl that cannot be continued |
+| `GET webgrph/crawl/{crawl_id}/pages` | nodes read `metadata.fetch_status`, `metadata.fetch_error` |
+| `GET webgrph/crawl-extract/{job_id}` | reads the `crawl` object (`CrawlExtractStatus.Crawl`); `WaitForCrawlExtract` stops when `crawl.status` is `held_quota` (`Held`) |
+| `GET webgrph/crawl-extract/{job_id}/export` | also reads the `X-Crawl-*` headers (`ExportDownload.Crawl`, `SavedExport.Crawl`) |
+| `GET batch-jobs/{batch_job_id}/export` | unchanged; the route sends no `X-Job-Status` and no `X-Crawl-*` header (`JobStatus` `""`, `Crawl` nil) |
+| `POST fetchyr/login-sessions` | new: `StartLoginSession` {target_url, method?, cookies?, user_agent?, country?}; answers 202 (interactive) or 201 (cookies) |
+| `GET fetchyr/sessions/{artifact_id}` | new: `Fetchyr.GetSession` |
+| `POST fetchyr/sessions/{artifact_id}/resume` | new: `ResumeSession`; 409 when the session is not paused or was logged out |
+| `POST kolektr/extract`, `POST kolektr/extract/html` | results read `level`, `level_reason`, `login_options` |
+
+Routes removed from the API since the last check, none of which the SDK called: the five `webgrph/analytics/*` dashboard routes (the sub-router is removed; see 0.3.0 → 0.4.0 below), `jobs/{job_id}/progress*`, `/api/v1/progress/*`, `scraping/clarify`, `users/authenticate` and the workspace content routes.
+
+Still not covered by the SDK:
+
+- `POST scraping/unified` and `GET scraping/unified/{job_id}`: no method.
+- Batch jobs: only the export is covered (`ExportBatchJob`, `DownloadBatchJob`). There is no method to create, list, read, stream, pause, resume or cancel a batch job, and no batch waiter.
+- `POST kolektr/api-data/{api_endpoint}/extract-all` and `GET kolektr/extraction-jobs/{job_id}/status` return the API's answer as a map; there is no waiter for an extract-all job, so nothing in the SDK stops at its `held_quota` status. Read `status` and `message` from the map.
+- The handed-off job follower (`GET handoff/{job_id}`) knows running, completed and failed only.
+- The activity and webhook-delivery routes added to the route list.
+
+## After 0.6.0 (unreleased): first pass
+
+Checked against kobe-scraper e5e358aa: `modules/nexus/router.py`, `modules/webgrph/crawl_extract_router.py`, `kernel/batch_export_router.py`, `scripts/generate_public_openapi.py` (`EXCLUDED`). `testdata/routes.tsv` was then edited by hand (`POST nexus/execute` removed, the six crawl-extract routes and the batch export added); the section above replaces it with the full route list (`TestContract_NexusExecuteIsGoneAndCrawlExtractIsCalled` still holds).
 
 | Call | After 0.6.0 |
 |---|---|
@@ -13,9 +40,9 @@ Checked against kobe-scraper integration/2026-11-12 (e5e358aa): `modules/nexus/r
 | `GET webgrph/crawl-extract/{job_id}` | new: `GetCrawlExtract`, `WaitForCrawlExtract` |
 | `GET webgrph/crawl-extract/{job_id}/results` | new: `ListCrawlExtractResults`, `AllCrawlExtractResults`; `limit` (1–1000), `cursor`, `shape`, `page_type`, `kind` |
 | `GET webgrph/crawl-extract/{job_id}/pages` | new: `ListCrawlExtractPages`; `limit` (1–1000), `offset`, `status` |
-| `GET webgrph/crawl-extract/{job_id}/export` | new: `ExportCrawlExtract` (stream), `DownloadCrawlExtract` (file); `format=json\|ndjson\|csv`, `shape`, `page_type`, `kind`; reads `X-Job-Status` and the `Content-Disposition` file name |
+| `GET webgrph/crawl-extract/{job_id}/export` | new: `ExportCrawlExtract` (stream), `DownloadCrawlExtract` (file); `format=json\|ndjson\|csv`, `shape`, `page_type`, `kind`; reads `X-Job-Status` and the `Content-Disposition` file name (and now `X-Crawl-*`, above) |
 | `POST webgrph/crawl-extract/{job_id}/cancel` | new: `CancelCrawlExtract`; 409 once the job has ended |
-| `GET batch-jobs/{batch_job_id}/export` | new: `Client.ExportBatchJob`, `Client.DownloadBatchJob` |
+| `GET batch-jobs/{batch_job_id}/export` | new: `Client.ExportBatchJob`, `Client.DownloadBatchJob`; sends no `X-Job-Status` |
 
 The API also hands off `POST scraping/unified` (202); the SDK has no method for it.
 
@@ -67,14 +94,14 @@ Checked against kobe-scraper's routers on 2026-10-28, including the route remova
 | `POST kolektr/extract`, `POST fetchyr/authenticate`, `POST fetchyr/form/detect`, `POST fetchyr/form/fill`, `POST fetchyr/mfa/detect`, `POST nexus/analyze`, `POST nexus/synthesize`, `POST nexus/execute` | can answer 202 (`@hands_off_after_limit`, `kernel/sync_handoff.py`); the SDK follows `poll_url` |
 | `GET handoff/{job_id}` | new: the hand-off poll route (running / completed with `result` / failed with `error`; 404 when not found or expired) |
 | `POST evadr/fetch` | 202 followed through the same follower, via its own `poll_url` (`evadr/jobs/{id}`) |
-| `POST nexus/execute` | response gains `execution_result_id` (`NexusExecuteResult.ExecutionResultID`), the id for `POST nexus/knowledge` |
+| `POST nexus/execute` | response gained `execution_result_id` (`NexusExecuteResult.ExecutionResultID`), the id for `POST nexus/knowledge`; the route and the method were removed after 0.6.0 (above) |
 | the 13 `nexus/recommendations/*` routes | deleted from the API (invented results); `RecommendAnalyze`, `ListRecommendationApplications`, `GetCacheStatistics`, `CleanupCache`, `InvalidateCache`, `GetHooksStatus`, `EnableHook`, `DisableHook`, `CreatePreference`, `GetPreferences`, `UpdatePreference`, `DeletePreference`, `GetRecommendationStatistics` removed |
 | `POST kolektr/jobs` | deleted from the API; `Kolektr.CreateJob` removed (`GET kolektr/jobs`, `GET kolektr/jobs/{id}` kept) |
 | `GET kolektr/jobs/%s/progress`, `…/progress/summary`, `…/progress/events`, `…/progress/latest` | deleted from the API (d7d25134); `GetJobProgress`, `GetJobProgressSummary`, `GetJobProgressEvents`, `GetJobProgressLatest` removed |
 | `GET kolektr/progress/phases`, `progress/phases/%s`, `progress/phases/%s/steps`, `progress/summary` | deleted from the API; `ListProgressPhases`, `GetProgressPhase`, `GetProgressPhaseSteps`, `GetProgressSummary` removed |
 | `GET kolektr/pipeline/%s/stream`, `pipeline/%s/events` | deleted from the API; `GetPipelineStream`, `GetPipelineEvents` removed |
 | `GET webgrph/analytics/job-trends`, `analytics/error-summary` | deleted from the API; `GetJobTrends`, `GetErrorSummary` removed |
-| `GET webgrph/analytics/dashboard/summary`, `content/discovery-patterns`, `scraping/efficiency-metrics`, `site-maps/trends`, `users/behavior-insights` | still served, by the dashboard-only sub-router (`modules/webgrph/analytics_router.py`), and left out of the public API (`scripts/generate_public_openapi.py` `EXCLUDED`); `GetDashboardSummary`, `GetDiscoveryPatterns`, `GetEfficiencyMetrics`, `GetSiteMappingTrends`, `GetUserBehaviorInsights` removed (rows stay in the fixture) |
+| `GET webgrph/analytics/dashboard/summary`, `content/discovery-patterns`, `scraping/efficiency-metrics`, `site-maps/trends`, `users/behavior-insights` | at 0.4.0 still served by the dashboard-only sub-router and left out of the public API; `GetDashboardSummary`, `GetDiscoveryPatterns`, `GetEfficiencyMetrics`, `GetSiteMappingTrends`, `GetUserBehaviorInsights` removed. The sub-router has since been removed from the API (no `modules/webgrph/analytics_router.py` at kobe-scraper 6bd19e9b) and the rows are gone from the fixture |
 | `GET evadr/profiles` | deleted from the API; `Evadr.ListProfiles` removed (`GET evadr/vendors` kept) |
 | standalone `recommendations/*` (13 rows) | dropped from the fixture: that router is not mounted (`api/app.py`, GAP-SEC-6); the SDK never called it |
 

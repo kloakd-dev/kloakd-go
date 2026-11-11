@@ -98,20 +98,57 @@ type PageNode struct {
 	// pages); the pages listing does not, and by default already puts each
 	// page under that parent (ParentURL). nil when absent (0.6.0).
 	CrawlParentURL *string
+	// FetchStatus is what the crawl got for this page
+	// (metadata.fetch_status) and FetchError why a fetch failed
+	// (metadata.fetch_error). nil when the API sent none.
+	FetchStatus *string
+	FetchError  *string
 }
 
-// CrawlResult is returned by Webgrph.Crawl.
+// CrawlResult is returned by Webgrph.Crawl, WaitForCrawl and StartCrawl.
 type CrawlResult struct {
-	Success         bool
-	CrawlID         string
-	URL             string
-	Status          string
+	// Success is true only for a crawl that ended "completed".
+	Success bool
+	CrawlID string
+	// URL is the crawl's URL: sent by StartCrawl's answer and filled by
+	// Crawl; empty from WaitForCrawl (the status route does not send it).
+	URL string
+	// Status is completed, failed, cancelled or held_quota. Empty from
+	// StartCrawl, whose answer has no status.
+	Status string
+	// TotalPages is the pages the crawl found.
 	TotalPages      int
 	MaxDepthReached int
 	Pages           []PageNode
 	Total           int
 	ArtifactID      *string
 	Error           *string
+
+	// Held is true when the crawl is paused because the organization's
+	// quota ran out (Status "held_quota"). It is not a failure: Error is
+	// nil and Message has the API's text. The crawl resumes by itself on
+	// the same id when quota returns; wait for it again with
+	// Webgrph.WaitForCrawl. After 30 days held it ends "failed" with
+	// ErrorCode "held_quota_expired".
+	Held bool
+	// Message is the API's text for a held crawl; nil otherwise.
+	Message *string
+	// IsPartial is true when the crawl stopped before asking for every
+	// page it found; PartialReason is then time_budget, max_pages or
+	// error. nil until the crawl has reported it.
+	IsPartial     *bool
+	PartialReason *string
+	// Resumable is true when Webgrph.ContinueCrawl can fetch the rest.
+	Resumable bool
+	// PagesDiscovered, PagesFetched and PagesUnfetched are what the crawl
+	// did: pages found, pages fetched, and pages asked for and not
+	// obtained. nil until the crawl has reported them.
+	PagesDiscovered *int
+	PagesFetched    *int
+	PagesUnfetched  *int
+	// ErrorCode is the API's code for a failed crawl, e.g.
+	// "held_quota_expired".
+	ErrorCode *string
 }
 
 // CrawlEvent is yielded by Webgrph.CrawlStream and Webgrph.CrawlEvents: a
@@ -319,6 +356,15 @@ type ExtractionResult struct {
 	// DiscoveryID is then the auth-chain discovery started for it.
 	AuthRequired bool
 	DiscoveryID  *string
+	// Level is the level a fresh scrape ran at ("level1" or "level2") and
+	// LevelReason why: "requested", or what automatic mode chose it for
+	// (prefixed "auto:"). nil when the API sent none.
+	Level       *string
+	LevelReason *string
+	// LoginOptions says, when AuthRequired is true, how to log in with
+	// your own account (Fetchyr.StartLoginSession) and pass the session to
+	// the next call. nil otherwise.
+	LoginOptions map[string]interface{}
 }
 
 // ─── High-level orchestrator ─────────────────────────────────────────────────
@@ -347,11 +393,17 @@ func (p CrawlPage) Ok() bool {
 	return p.Success && p.Error == nil
 }
 
-// SiteCrawlResult is returned by Client.Crawl. Success and Error are the
-// discovery crawl's own.
+// SiteCrawlResult is returned by Client.Crawl. Success, Error, CrawlID,
+// Status, Held and Message are the discovery crawl's own (see CrawlResult).
+// When Held is true the discovery crawl is paused for quota: no page was
+// fetched, and Webgrph.WaitForCrawl(CrawlID) picks the crawl up later.
 type SiteCrawlResult struct {
 	Success              bool
 	URL                  string
+	CrawlID              string
+	Status               string
+	Held                 bool
+	Message              *string
 	TotalPagesDiscovered int
 	PagesFetched         int
 	PagesFailed          int

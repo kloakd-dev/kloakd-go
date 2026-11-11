@@ -282,6 +282,9 @@ func parseExtractionResult(raw map[string]interface{}) *ExtractionResult {
 		Error:        optStrField(raw, "error"),
 		AuthRequired: boolField(raw, "auth_required"),
 		DiscoveryID:  optStrField(raw, "discovery_id"),
+		Level:        optStrField(raw, "level"),
+		LevelReason:  optStrField(raw, "level_reason"),
+		LoginOptions: optMapField(raw, "login_options"),
 	}
 }
 

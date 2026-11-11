@@ -363,6 +363,13 @@ func optIntField(m map[string]interface{}, key string) *int {
 	return nil
 }
 
+func optBoolField(m map[string]interface{}, key string) *bool {
+	if b, ok := m[key].(bool); ok {
+		return &b
+	}
+	return nil
+}
+
 func optFloatField(m map[string]interface{}, key string) *float64 {
 	if f, ok := m[key].(float64); ok {
 		return &f
@@ -386,6 +393,14 @@ func mapField(m map[string]interface{}, key string) map[string]interface{} {
 		}
 	}
 	return map[string]interface{}{}
+}
+
+// optMapField is mapField, but nil when the key is absent or null.
+func optMapField(m map[string]interface{}, key string) map[string]interface{} {
+	if mm, ok := m[key].(map[string]interface{}); ok {
+		return mm
+	}
+	return nil
 }
 
 func sliceMapField(m map[string]interface{}, key string) []map[string]interface{} {

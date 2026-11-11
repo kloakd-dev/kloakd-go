@@ -22,6 +22,10 @@ import (
 // authentication (NotEntitledError, AuthenticationError), RateLimitError,
 // ConcurrencyLimitError and ctx's error. The result's Success and Error are
 // the discovery crawl's.
+//
+// When the discovery crawl is held for quota (Webgrph.WaitForCrawl), Crawl
+// returns at once with no error: Held true, Status "held_quota", Success
+// false, Error nil, Message with the API's text, and no pages.
 func (c *Client) Crawl(ctx context.Context, targetURL string, opts *CrawlOrchestratorOptions) (*SiteCrawlResult, error) {
 	crawlResult, err := c.Webgrph.Crawl(ctx, targetURL, orchestratorCrawlOptions(opts))
 	if err != nil {
@@ -42,7 +46,10 @@ func (c *Client) Crawl(ctx context.Context, targetURL string, opts *CrawlOrchest
 // CrawlStream is the streaming version of Crawl. It sends CrawlProgressEvent
 // values on the returned channel as pages are fetched; the last is
 // crawl_complete, or crawl_error (with Err) when an error stops the crawl
-// (see Crawl). The channel closes after it, or when ctx is cancelled.
+// (see Crawl). The channel closes after it, or when ctx is cancelled. For a
+// discovery crawl held for quota the events are discovery_complete and
+// crawl_complete, both with Success false and Metadata "held" true,
+// "status" "held_quota" and "crawl_id".
 func (c *Client) CrawlStream(ctx context.Context, targetURL string, opts *CrawlOrchestratorOptions) (<-chan CrawlProgressEvent, error) {
 	crawlResult, err := c.Webgrph.Crawl(ctx, targetURL, orchestratorCrawlOptions(opts))
 	if err != nil {
@@ -69,7 +76,7 @@ func (c *Client) CrawlStream(ctx context.Context, targetURL string, opts *CrawlO
 			Total:    totalPtr,
 			Success:  &crawlResult.Success,
 			Error:    crawlResult.Error,
-			Metadata: map[string]interface{}{"pages_found": total},
+			Metadata: heldMetadata(crawlResult, map[string]interface{}{"pages_found": total}),
 		}) {
 			return
 		}
@@ -110,7 +117,7 @@ func (c *Client) CrawlStream(ctx context.Context, targetURL string, opts *CrawlO
 			Total:    totalPtr,
 			Success:  &result.Success,
 			Error:    result.Error,
-			Metadata: map[string]interface{}{"result": *result},
+			Metadata: heldMetadata(crawlResult, map[string]interface{}{"result": *result}),
 		})
 	}()
 	return ch, nil
@@ -132,10 +139,25 @@ func orchestratorCrawlOptions(opts *CrawlOrchestratorOptions) *CrawlOptions {
 	return crawlOpts
 }
 
+// heldMetadata adds the held outcome of the discovery crawl to an event's
+// metadata.
+func heldMetadata(crawl *CrawlResult, meta map[string]interface{}) map[string]interface{} {
+	if crawl.Held {
+		meta["held"] = true
+		meta["status"] = crawl.Status
+		meta["crawl_id"] = crawl.CrawlID
+	}
+	return meta
+}
+
 func siteResult(targetURL string, crawl *CrawlResult) *SiteCrawlResult {
 	return &SiteCrawlResult{
 		Success:              crawl.Success,
 		URL:                  targetURL,
+		CrawlID:              crawl.CrawlID,
+		Status:               crawl.Status,
+		Held:                 crawl.Held,
+		Message:              crawl.Message,
 		TotalPagesDiscovered: crawl.TotalPages,
 		Pages:                []CrawlPage{},
 		CrawlArtifactID:      crawl.ArtifactID,

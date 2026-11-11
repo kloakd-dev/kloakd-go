@@ -249,9 +249,11 @@ var deletedRoutes = []string{
 	"GET evadr/profiles",
 }
 
-// Webgrph's dashboard analytics routes still exist but are served by the
-// dashboard-only sub-router and left out of the public API
-// (scripts/generate_public_openapi.py EXCLUDED); the SDK does not call them.
+// Webgrph's five dashboard analytics routes were served by a dashboard-only
+// sub-router until it was removed from the API (kobe-scraper 6bd19e9b has
+// no modules/webgrph/analytics_router.py; scripts/generate_public_openapi.py
+// records the removal). They are gone from the fixture and the SDK does not
+// call them.
 var dashboardOnlyRoutes = []string{
 	"GET webgrph/analytics/dashboard/summary", "GET webgrph/analytics/content/discovery-patterns",
 	"GET webgrph/analytics/scraping/efficiency-metrics", "GET webgrph/analytics/site-maps/trends",
@@ -275,8 +277,8 @@ func TestContract_DeletedRoutesAreGoneAndTheHandOffPollIsLive(t *testing.T) {
 		}
 	}
 	for _, key := range dashboardOnlyRoutes {
-		if !live[key] {
-			t.Errorf("%s still exists (dashboard-only) and should stay in testdata/routes.tsv", key)
+		if live[key] {
+			t.Errorf("%s is removed from the API but still in testdata/routes.tsv", key)
 		}
 	}
 	calls := sdkCalls(t)
@@ -292,7 +294,7 @@ func TestContract_DeletedRoutesAreGoneAndTheHandOffPollIsLive(t *testing.T) {
 	}
 }
 
-// After 0.6.0 (kobe-scraper integration/2026-11-12, e5e358aa): POST
+// After 0.6.0 (checked again at kobe-scraper 6bd19e9b): POST
 // nexus/execute is removed from the API; POST nexus/knowledge is still a
 // route but is left out of the public API
 // (scripts/generate_public_openapi.py EXCLUDED), so the SDK does not call
@@ -339,6 +341,24 @@ func TestContract_ParityRoutesAreCalled(t *testing.T) {
 		"POST fetchyr/auth-chain/{}/resume-credentials", "POST fetchyr/auth-chain/{}/resume-mfa",
 		"GET handoff/{}",
 	} {
+		if !calls[key] {
+			t.Errorf("the SDK does not call %s", key)
+		}
+	}
+}
+
+// After 0.6.0 (kobe-scraper 6bd19e9b): continuing a crawl that stopped at
+// its time budget (modules/webgrph/router.py) and the login sessions
+// (modules/fetchyr/router.py) are live routes and the SDK calls them.
+func TestContract_ContinueAndLoginSessionRoutesAreLiveAndCalled(t *testing.T) {
+	live, calls := liveRoutes(t), sdkCalls(t)
+	for _, key := range []string{
+		"POST webgrph/crawl/{}/continue",
+		"POST fetchyr/login-sessions", "GET fetchyr/sessions/{}", "POST fetchyr/sessions/{}/resume",
+	} {
+		if !live[key] {
+			t.Errorf("%s missing from testdata/routes.tsv", key)
+		}
 		if !calls[key] {
 			t.Errorf("the SDK does not call %s", key)
 		}

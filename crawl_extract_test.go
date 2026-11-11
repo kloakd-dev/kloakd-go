@@ -13,8 +13,8 @@ import (
 )
 
 // The crawl-extract job and the exports, checked against kobe-scraper
-// integration/2026-11-12 (e5e358aa): modules/webgrph/crawl_extract_router.py
-// and kernel/batch_export_router.py.
+// 6bd19e9b: modules/webgrph/crawl_extract_router.py and
+// kernel/batch_export_router.py.
 
 const ceJob = "b7a1c0de-0000-4000-8000-000000000001"
 

@@ -164,6 +164,214 @@ func (f *FetchyrNamespace) TerminateSession(ctx context.Context, artifactID stri
 	return f.t.delete(ctx, pathf("fetchyr/sessions/%s", artifactID))
 }
 
+// LoginCookie is one cookie of your own browser session, as a browser
+// exports it (DevTools, cookie-export extensions). Name and Value are
+// required; the other fields are sent only when set.
+type LoginCookie struct {
+	Name   string
+	Value  string
+	Domain string
+	Path   string
+	// Expires and ExpirationDate are epoch seconds (extension exports use
+	// the second name); 0 sends none.
+	Expires        float64
+	ExpirationDate float64
+	Secure         bool
+	HTTPOnly       bool
+	SameSite       string
+}
+
+func (c LoginCookie) body() map[string]interface{} {
+	m := map[string]interface{}{"name": c.Name, "value": c.Value}
+	if c.Domain != "" {
+		m["domain"] = c.Domain
+	}
+	if c.Path != "" {
+		m["path"] = c.Path
+	}
+	if c.Expires != 0 {
+		m["expires"] = c.Expires
+	}
+	if c.ExpirationDate != 0 {
+		m["expirationDate"] = c.ExpirationDate
+	}
+	if c.Secure {
+		m["secure"] = true
+	}
+	if c.HTTPOnly {
+		m["httpOnly"] = true
+	}
+	if c.SameSite != "" {
+		m["sameSite"] = c.SameSite
+	}
+	return m
+}
+
+// LoginSessionOptions configures Fetchyr.StartLoginSession. Only the fields
+// that are set are sent.
+type LoginSessionOptions struct {
+	// Method is "interactive" (the API's default when ""): KLOAKD opens the
+	// site's login in a browser and asks for the credentials, and an MFA
+	// code, through the auth-chain methods. Or "cookies": use a session you
+	// already have in your own browser.
+	Method string
+	// Cookies are your browser's cookies for the site (Method "cookies").
+	Cookies []LoginCookie
+	// UserAgent is your browser's navigator.userAgent. The API requires it
+	// with Method "cookies": the site issued the cookies to that browser.
+	UserAgent string
+	// Country is the two-letter country the session's exit is in (where
+	// the account usually logs in from).
+	Country string
+}
+
+// LoginSession is the answer to Fetchyr.StartLoginSession.
+type LoginSession struct {
+	Method string
+	// Status is "waiting_for_login" (interactive) or "ready" (cookies).
+	Status    string
+	TargetURL string
+	// DiscoveryID is the auth-chain discovery of an interactive login: the
+	// id GetAuthChainStatus, ResumeAuthChainCredentials and
+	// ResumeAuthChainMFA take. nil for a cookies login.
+	DiscoveryID *string
+	// SessionArtifactID is the session, once there is one: the id to pass
+	// as SessionArtifactID to fetch, crawl and extract calls, and to
+	// GetSession, ResumeSession and TerminateSession.
+	SessionArtifactID *string
+	// Next names the routes of the next steps, as the API sends them.
+	Next map[string]string
+	// CookiesKept is how many of the cookies sent the session kept (nil for
+	// an interactive login); CookiesDropped names those it left out.
+	CookiesKept    *int
+	CookiesDropped []string
+	// Protections are the limits the session runs under.
+	Protections map[string]interface{}
+	Message     string
+	// Raw is the answer as received.
+	Raw map[string]interface{}
+}
+
+// SessionStatus is the state of a login session (Fetchyr.GetSession,
+// Fetchyr.ResumeSession). It carries no cookie values.
+type SessionStatus struct {
+	ArtifactID string
+	// Status is active, paused, EXPIRED or INVALIDATED.
+	Status       string
+	TargetDomain *string
+	AuthMethod   *string
+	CreatedAt    *string
+	ExpiresAt    *string
+	LastUsedAt   *string
+	PausedAt     *string
+	// PauseReason is logged_out, rate_limited or challenged; PauseMessage
+	// says what to do.
+	PauseReason  *string
+	PauseMessage *string
+	// Identity is what the session presents to the site.
+	Identity         map[string]interface{}
+	RequestsThisHour *int
+	Protections      map[string]interface{}
+	// Raw is the answer as received.
+	Raw map[string]interface{}
+}
+
+// StartLoginSession logs in to a site with your own account
+// (POST fetchyr/login-sessions). targetURL is a page of the site that needs
+// the login. With Method "interactive" (the default) the API answers 202
+// with Status "waiting_for_login" and a DiscoveryID: supply the credentials
+// and an MFA code with ResumeAuthChainCredentials and ResumeAuthChainMFA.
+// With Method "cookies" it answers 201 with Status "ready" and the
+// SessionArtifactID. A request the API refuses (cookies without a user
+// agent, no usable cookie, a URL that is not allowed) is a 422 *ApiError.
+func (f *FetchyrNamespace) StartLoginSession(ctx context.Context, targetURL string, opts *LoginSessionOptions) (*LoginSession, error) {
+	body := map[string]interface{}{"target_url": targetURL}
+	if opts != nil {
+		if opts.Method != "" {
+			body["method"] = opts.Method
+		}
+		if opts.Cookies != nil {
+			cookies := make([]map[string]interface{}, 0, len(opts.Cookies))
+			for _, c := range opts.Cookies {
+				cookies = append(cookies, c.body())
+			}
+			body["cookies"] = cookies
+		}
+		if opts.UserAgent != "" {
+			body["user_agent"] = opts.UserAgent
+		}
+		if opts.Country != "" {
+			body["country"] = opts.Country
+		}
+	}
+	raw, err := f.t.post(ctx, "fetchyr/login-sessions", body)
+	if err != nil {
+		return nil, err
+	}
+	next := map[string]string{}
+	for k, v := range mapField(raw, "next") {
+		if s, ok := v.(string); ok {
+			next[k] = s
+		}
+	}
+	return &LoginSession{
+		Method:            strField(raw, "method"),
+		Status:            strField(raw, "status"),
+		TargetURL:         strField(raw, "target_url"),
+		DiscoveryID:       optStrField(raw, "discovery_id"),
+		SessionArtifactID: optStrField(raw, "session_artifact_id"),
+		Next:              next,
+		CookiesKept:       optIntField(raw, "cookies_kept"),
+		CookiesDropped:    strSliceField(raw, "cookies_dropped"),
+		Protections:       mapField(raw, "protections"),
+		Message:           strField(raw, "message"),
+		Raw:               raw,
+	}, nil
+}
+
+// GetSession gets a login session's state (GET fetchyr/sessions/{id}):
+// whether it is active or paused, why it was paused, and what it presents
+// to the site. An unknown session is a 404 *ApiError.
+func (f *FetchyrNamespace) GetSession(ctx context.Context, artifactID string) (*SessionStatus, error) {
+	raw, err := f.t.get(ctx, pathf("fetchyr/sessions/%s", artifactID), nil)
+	if err != nil {
+		return nil, err
+	}
+	return parseSessionStatus(raw), nil
+}
+
+// ResumeSession puts a paused login session back to use
+// (POST fetchyr/sessions/{id}/resume) and returns its state. A session that
+// is not paused, or that was paused because the site logged it out
+// (PauseReason "logged_out": log in again with StartLoginSession), is a 409
+// *ApiError.
+func (f *FetchyrNamespace) ResumeSession(ctx context.Context, artifactID string) (*SessionStatus, error) {
+	raw, err := f.t.post(ctx, pathf("fetchyr/sessions/%s/resume", artifactID), nil)
+	if err != nil {
+		return nil, err
+	}
+	return parseSessionStatus(raw), nil
+}
+
+func parseSessionStatus(raw map[string]interface{}) *SessionStatus {
+	return &SessionStatus{
+		ArtifactID:       strField(raw, "artifact_id"),
+		Status:           strField(raw, "status"),
+		TargetDomain:     optStrField(raw, "target_domain"),
+		AuthMethod:       optStrField(raw, "auth_method"),
+		CreatedAt:        optStrField(raw, "created_at"),
+		ExpiresAt:        optStrField(raw, "expires_at"),
+		LastUsedAt:       optStrField(raw, "last_used_at"),
+		PausedAt:         optStrField(raw, "paused_at"),
+		PauseReason:      optStrField(raw, "pause_reason"),
+		PauseMessage:     optStrField(raw, "pause_message"),
+		Identity:         mapField(raw, "identity"),
+		RequestsThisHour: optIntField(raw, "requests_this_hour"),
+		Protections:      mapField(raw, "protections"),
+		Raw:              raw,
+	}
+}
+
 // FillForm fills and submits a form on a page.
 func (f *FetchyrNamespace) FillForm(ctx context.Context, targetURL string, formData map[string]string, sessionArtifactID string) (map[string]interface{}, error) {
 	body := map[string]interface{}{"url": targetURL, "form_data": formData}

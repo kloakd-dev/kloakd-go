@@ -173,7 +173,7 @@ func (e *UpstreamError) Error() string {
 // of a handed-off job that failed or expired (Code "job_failed") or was still
 // running at the poll timeout (Code "job_timeout", and "crawl_timeout" for
 // Webgrph.Crawl); JobID names the job (or crawl), so the wait can be resumed
-// with Client.WaitForHandoff (or Webgrph.GetCrawlStatus).
+// with Client.WaitForHandoff (or Webgrph.WaitForCrawl).
 type ApiError struct {
 	KloakdError
 	JobID string

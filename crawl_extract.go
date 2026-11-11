@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -147,7 +148,39 @@ type CrawlExtractStatus struct {
 	Links           CrawlExtractLinks
 	PagesByMethod   map[string]int
 	Shapes          []CrawlExtractShape
-	Raw             map[string]interface{}
+	// Crawl is what the job's crawl really did (the status body's "crawl"
+	// object); nil when the API sent none. A completed job whose crawl is
+	// partial holds the rows of the pages that crawl fetched, not of the
+	// whole site.
+	Crawl *CrawlExtractCrawl
+	// Held is true when the job's crawl is paused because the
+	// organization's quota ran out (Crawl.Status "held_quota"). The job
+	// itself keeps its status and waits; see WaitForCrawlExtract.
+	Held bool
+	Raw  map[string]interface{}
+}
+
+// CrawlExtractCrawl is the crawl of a crawl-extract job, as the job's
+// status reports it. The counts and IsPartial are nil until the crawl has
+// reported them.
+type CrawlExtractCrawl struct {
+	// Status is the crawl's own status (running, completed, failed,
+	// cancelled or held_quota), not the job's.
+	Status string
+	// IsPartial is true when the crawl stopped before asking for every
+	// page it found; PartialReason is then time_budget, max_pages or error.
+	IsPartial       *bool
+	PartialReason   *string
+	PagesDiscovered *int
+	PagesFetched    *int
+	PagesUnfetched  *int
+	// Cancelled is true for a cancelled crawl; RootUnfetched when the
+	// crawl could not fetch its first page.
+	Cancelled     bool
+	RootUnfetched bool
+	// Error is the crawl's error when it failed; ErrorCode its code.
+	Error     *string
+	ErrorCode *string
 }
 
 // Finished reports whether the job has ended (completed, failed or cancelled).
@@ -244,17 +277,40 @@ type ExportDownload struct {
 	Filename string
 	// JobStatus is the crawl-extract job's status when the export started
 	// (X-Job-Status): the export of a running or failed job holds the rows
-	// written so far. "" for a batch export.
+	// written so far. It is set for crawl-extract exports only; it is ""
+	// for a batch export, whose route sends no such header.
 	JobStatus string
+	// Crawl is what the job's crawl did, read from the X-Crawl-* headers
+	// of a crawl-extract export. nil when the answer has no X-Crawl-*
+	// header, as for a batch export.
+	Crawl *ExportCrawl
 }
 
-// SavedExport describes an export written to a file.
+// ExportCrawl is the crawl of an exported crawl-extract job, read from the
+// export's X-Crawl-* headers. The API leaves out a header whose value the
+// crawl has not reported; that field is then nil. An export of a job whose
+// crawl is partial (IsPartial true) holds the rows of the pages the crawl
+// fetched, not of the whole site.
+type ExportCrawl struct {
+	Status          *string // X-Crawl-Status
+	IsPartial       *bool   // X-Crawl-Partial
+	PartialReason   *string // X-Crawl-Partial-Reason: time_budget, max_pages or error
+	PagesDiscovered *int    // X-Crawl-Pages-Discovered
+	PagesFetched    *int    // X-Crawl-Pages-Fetched
+	PagesUnfetched  *int    // X-Crawl-Pages-Unfetched
+	Cancelled       *bool   // X-Crawl-Cancelled
+	RootUnfetched   *bool   // X-Crawl-Root-Unfetched: the first page could not be fetched
+}
+
+// SavedExport describes an export written to a file. JobStatus and Crawl
+// are those of the ExportDownload it was written from.
 type SavedExport struct {
 	Path        string
 	Bytes       int64
 	ContentType string
 	Filename    string
 	JobStatus   string
+	Crawl       *ExportCrawl
 }
 
 // CrawlExtractCancelResult is the answer to cancelling a job. Status is
@@ -360,6 +416,14 @@ func (w *WebgrphNamespace) GetCrawlExtract(ctx context.Context, jobID string) (*
 // WaitForCrawlExtract polls a job until it ends and returns its last state,
 // whatever it is (check Status). poll nil means 3 s and 60 min. A job still
 // running at the timeout is an *ApiError with Code "job_timeout" and JobID.
+//
+// The wait also stops, without an error, when the job's crawl is held: the
+// organization's quota ran out and the API paused the crawl (Crawl.Status
+// "held_quota"). The returned status then has Held true and the job's own
+// Status unchanged (the job is not finished). The crawl resumes by itself
+// when quota returns and the job goes on under the same id; call
+// WaitForCrawlExtract with that id again later. A crawl held for 30 days
+// ends as failed with error code "held_quota_expired".
 func (w *WebgrphNamespace) WaitForCrawlExtract(ctx context.Context, jobID string, poll *PollOptions) (*CrawlExtractStatus, error) {
 	opts := PollOptions{Interval: DefaultCrawlExtractPollInterval, Timeout: DefaultCrawlExtractPollTimeout}
 	if poll != nil {
@@ -371,7 +435,7 @@ func (w *WebgrphNamespace) WaitForCrawlExtract(ctx context.Context, jobID string
 		if err != nil {
 			return nil, err
 		}
-		if status.Finished() {
+		if status.Finished() || status.Held {
 			return status, nil
 		}
 		if time.Now().After(deadline) {
@@ -386,6 +450,9 @@ func (w *WebgrphNamespace) WaitForCrawlExtract(ctx context.Context, jobID string
 
 // CrawlExtract starts a job and waits for it to end. A failed job is an
 // *ApiError with Code "job_failed" and JobID; a cancelled one is returned.
+// A job whose crawl is held for quota is returned unfinished with Held
+// true (see WaitForCrawlExtract); check Held or Finished before reading
+// its rows.
 func (w *WebgrphNamespace) CrawlExtract(ctx context.Context, targetURL string, opts *CrawlExtractOptions) (*CrawlExtractStatus, error) {
 	job, err := w.StartCrawlExtract(ctx, targetURL, opts)
 	if err != nil {
@@ -562,7 +629,9 @@ func crawlExtractExportParams(opts *CrawlExtractExportOptions) (map[string]strin
 
 // ExportCrawlExtract opens a job's rows as one download (json, ndjson or
 // csv). The body is streamed, not held in memory, and is not bound by
-// Config.Timeout (ctx ends it); the caller must Close it.
+// Config.Timeout (ctx ends it); the caller must Close it. JobStatus is the
+// job's status when the export started and Crawl what its crawl did
+// (X-Job-Status and the X-Crawl-* headers).
 func (w *WebgrphNamespace) ExportCrawlExtract(ctx context.Context, jobID string, opts *CrawlExtractExportOptions) (*ExportDownload, error) {
 	params, err := crawlExtractExportParams(opts)
 	if err != nil {
@@ -599,7 +668,9 @@ func (w *WebgrphNamespace) CancelCrawlExtract(ctx context.Context, jobID string)
 
 // ExportBatchJob opens a batch job's results as one download; format is
 // ExportJSON (also when ""), ExportNDJSON or ExportCSV. The body is
-// streamed and not bound by Config.Timeout; the caller must Close it.
+// streamed and not bound by Config.Timeout; the caller must Close it. The
+// batch export sends neither X-Job-Status nor X-Crawl-* headers: JobStatus
+// is "" and Crawl is nil.
 func (c *Client) ExportBatchJob(ctx context.Context, batchJobID, format string) (*ExportDownload, error) {
 	format, err := exportFormat(format)
 	if err != nil {
@@ -632,7 +703,7 @@ func saveExport(dl *ExportDownload, filePath string) (*SavedExport, error) {
 		os.Remove(filePath)
 		return nil, fmt.Errorf("kloakd: write export to %s: %w", filePath, err)
 	}
-	return &SavedExport{Path: filePath, Bytes: n, ContentType: dl.ContentType, Filename: dl.Filename, JobStatus: dl.JobStatus}, nil
+	return &SavedExport{Path: filePath, Bytes: n, ContentType: dl.ContentType, Filename: dl.Filename, JobStatus: dl.JobStatus, Crawl: dl.Crawl}, nil
 }
 
 // download opens a streamed GET on the client without a Timeout, with the
@@ -668,6 +739,7 @@ func (t *transport) download(ctx context.Context, path string, params map[string
 				ContentType: resp.Header.Get("Content-Type"),
 				Filename:    filename,
 				JobStatus:   resp.Header.Get("X-Job-Status"),
+				Crawl:       parseExportCrawl(resp.Header),
 			}, nil
 		}
 		errBody, _ := io.ReadAll(resp.Body)
@@ -702,7 +774,70 @@ func parseCrawlExtractLinks(raw map[string]interface{}) CrawlExtractLinks {
 	}
 }
 
+// parseExportCrawl reads an export's X-Crawl-* headers. nil when the
+// answer has none of them.
+func parseExportCrawl(h http.Header) *ExportCrawl {
+	str := func(name string) *string {
+		if vs := h.Values(name); len(vs) > 0 {
+			return &vs[0]
+		}
+		return nil
+	}
+	num := func(name string) *int {
+		if s := str(name); s != nil {
+			if n, err := strconv.Atoi(strings.TrimSpace(*s)); err == nil {
+				return &n
+			}
+		}
+		return nil
+	}
+	flag := func(name string) *bool {
+		if s := str(name); s != nil {
+			if b, err := strconv.ParseBool(strings.TrimSpace(*s)); err == nil {
+				return &b
+			}
+		}
+		return nil
+	}
+	crawl := ExportCrawl{
+		Status:          str("X-Crawl-Status"),
+		IsPartial:       flag("X-Crawl-Partial"),
+		PartialReason:   str("X-Crawl-Partial-Reason"),
+		PagesDiscovered: num("X-Crawl-Pages-Discovered"),
+		PagesFetched:    num("X-Crawl-Pages-Fetched"),
+		PagesUnfetched:  num("X-Crawl-Pages-Unfetched"),
+		Cancelled:       flag("X-Crawl-Cancelled"),
+		RootUnfetched:   flag("X-Crawl-Root-Unfetched"),
+	}
+	if crawl == (ExportCrawl{}) {
+		return nil
+	}
+	return &crawl
+}
+
+// parseCrawlExtractCrawl reads a status body's "crawl" object; nil when it
+// is absent or null.
+func parseCrawlExtractCrawl(raw map[string]interface{}) *CrawlExtractCrawl {
+	c, ok := raw["crawl"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	return &CrawlExtractCrawl{
+		Status:          strField(c, "status"),
+		IsPartial:       optBoolField(c, "is_partial"),
+		PartialReason:   optStrField(c, "partial_reason"),
+		PagesDiscovered: optIntField(c, "pages_discovered"),
+		PagesFetched:    optIntField(c, "pages_fetched"),
+		PagesUnfetched:  optIntField(c, "pages_unfetched"),
+		Cancelled:       boolField(c, "cancelled"),
+		RootUnfetched:   boolField(c, "root_unfetched"),
+		Error:           optStrField(c, "error"),
+		ErrorCode:       optStrField(c, "error_code"),
+	}
+}
+
 func parseCrawlExtractStatus(raw map[string]interface{}) *CrawlExtractStatus {
+	crawl := parseCrawlExtractCrawl(raw)
 	progress := mapField(raw, "progress")
 	methods := map[string]int{}
 	byMethod := mapField(raw, "pages_by_method")
@@ -742,6 +877,8 @@ func parseCrawlExtractStatus(raw map[string]interface{}) *CrawlExtractStatus {
 		Links:         parseCrawlExtractLinks(mapField(raw, "links")),
 		PagesByMethod: methods,
 		Shapes:        shapes,
+		Crawl:         crawl,
+		Held:          crawl != nil && crawl.Status == crawlHeldQuota,
 		Raw:           raw,
 	}
 }
