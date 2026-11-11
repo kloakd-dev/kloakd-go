@@ -148,27 +148,21 @@ type NexusVerifyResult struct {
 	Verified    bool
 	SafetyScore float64
 	Violations  []string
+
+	// Status is "verified" or "unsafe"; nil when the API did not send it.
+	Status    *string
+	RiskScore float64
+	// SafetyChecks is the result of each property the engine checked.
+	SafetyChecks         []NexusSafetyCheck
+	VerificationResultID *string
+	DurationMs           int
 }
 
-// NexusExecuteResult is returned by Nexus.Execute.
-type NexusExecuteResult struct {
-	StrategyID string
-	Success    bool
-	Records    []map[string]interface{}
-	ArtifactID *string
-	DurationMs int
-	Error      *string
-	// ExecutionResultID identifies this execution; pass it to
-	// Nexus.Knowledge. Nil when the API did not return one.
-	ExecutionResultID *string
-}
-
-// NexusKnowledgeResult is returned by Nexus.Knowledge.
-type NexusKnowledgeResult struct {
-	LearnedConcepts []map[string]interface{}
-	Patterns        []map[string]interface{}
-	TotalPatterns   int
-	DurationMs      int
+// NexusSafetyCheck is one property checked by Nexus.Verify.
+type NexusSafetyCheck struct {
+	Property string
+	Passed   bool
+	Details  string
 }
 
 // NexusReasonResult is returned by Nexus.Reason.

@@ -104,13 +104,6 @@ func handOffCases() map[string]handOffCase {
 					t.Errorf("got %+v", r)
 				}
 			}},
-		"Nexus.Execute": {"nexus/execute", map[string]interface{}{"strategy_id": "s-1", "success": true, "execution_result_id": "er-1"},
-			func(c *Client) (interface{}, error) { return c.Nexus.Execute(ctx, "s-1", "https://x", nil) },
-			func(t *testing.T, v interface{}) {
-				if r := v.(*NexusExecuteResult); !r.Success || r.ExecutionResultID == nil || *r.ExecutionResultID != "er-1" {
-					t.Errorf("got %+v", r)
-				}
-			}},
 	}
 }
 
@@ -163,11 +156,11 @@ func TestHandOff_ADirect200IsNotPolled(t *testing.T) {
 
 func TestHandOff_AFailedJobIsJobFailed(t *testing.T) {
 	_, server := newRouteServer(map[string]http.HandlerFunc{
-		"POST nexus/execute": jsonHandler(202, handoff202()),
-		handoffPoll:          jsonHandler(200, map[string]interface{}{"job_id": "job-9", "status": "failed", "error": "HTTPException: engine down"}),
+		"POST nexus/synthesize": jsonHandler(202, handoff202()),
+		handoffPoll:             jsonHandler(200, map[string]interface{}{"job_id": "job-9", "status": "failed", "error": "HTTPException: engine down"}),
 	})
 	defer server.Close()
-	_, err := newPollingClient(server).Nexus.Execute(context.Background(), "s-1", "https://x", nil)
+	_, err := newPollingClient(server).Nexus.Synthesize(context.Background(), "https://x", "<html/>", "prices")
 	var apiErr *ApiError
 	if !errorsAs(err, &apiErr) || apiErr.Code != "job_failed" || apiErr.JobID != "job-9" || apiErr.Message != "HTTPException: engine down" {
 		t.Fatalf("expected job_failed, got %v", err)
