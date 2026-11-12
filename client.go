@@ -37,7 +37,7 @@ type Config struct {
 	// PollInterval and PollTimeout govern following a request the API hands
 	// off as a job (HTTP 202 after about 85 s): Evadr.Fetch, Kolektr.Extract,
 	// Fetchyr.Authenticate / DetectForms / FillForm / DetectMFA and
-	// Nexus.Analyze / Synthesize. The first poll waits
+	// Nexus.Analyze / Synthesize and Client.UnifiedScrape. The first poll waits
 	// PollInterval (default 3 s); each later wait is 1.5 times longer, up to
 	// 15 s. PollTimeout (default 15 min) bounds the whole wait; ctx
 	// cancellation also stops it.

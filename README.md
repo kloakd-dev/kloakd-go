@@ -92,7 +92,8 @@ continues as a job: the API answers 202 with a `job_id` and `poll_url`, and
 the SDK polls `poll_url` (waits grow 1.5× from `PollInterval`, at most 15 s)
 and returns the same typed result a direct answer would have. This applies to
 `Evadr.Fetch`, `Kolektr.Extract`, `Fetchyr.Authenticate`, `DetectForms`,
-`FillForm`, `DetectMFA` and `Nexus.Analyze`, `Synthesize`. A
+`FillForm`, `DetectMFA`, `Nexus.Analyze`, `Synthesize` and
+`Client.UnifiedScrape`. A
 failed or expired job is an `*kloakd.ApiError` with `Code` `"job_failed"`; a
 job still running at `PollTimeout` has `Code` `"job_timeout"`; `JobID` names
 the job. Cancelling `ctx` stops the wait.
@@ -334,6 +335,71 @@ if saved.Crawl != nil && saved.Crawl.IsPartial != nil && *saved.Crawl.IsPartial 
 job's results in the same formats. The batch export sends neither
 `X-Job-Status` nor `X-Crawl-*`: `JobStatus` is `""` and `Crawl` is nil.
 
+### Batch jobs
+
+A batch extracts a list of URLs, one item per URL, and holds one work slot
+until it ends. It needs a live key (a test key is refused with 403).
+
+```go
+batch, err := client.CreateBatchJob(ctx,
+    []string{"https://shop.example/p/1", "https://shop.example/p/2"},
+    &kloakd.BatchJobOptions{EntityType: "products", Fields: []string{"name", "price"}})
+
+_, err = client.PauseBatchJob(ctx, batch.ID)    // items already running finish; the rest wait
+_, err = client.ResumeBatchJob(ctx, batch.ID)   // the waiting items are queued again, each once
+state, err := client.GetBatchJob(ctx, batch.ID) // Status, TotalItems, CompletedItems, Message
+
+page, err := client.GetBatchJobResults(ctx, batch.ID, &kloakd.BatchJobResultsOptions{Limit: 100})
+for _, item := range page.Results {
+    fmt.Println(item.JobID, item.Status, item.ExtractedData)
+}
+
+_, err = client.CancelBatchJob(ctx, batch.ID) // items not yet ended are cancelled; finished ones keep their results
+```
+
+- `Status` is `pending`, `running`, `paused`, `held_quota`, `completed`,
+  `failed` or `cancelled`. Only a running batch can be paused, only a
+  paused one resumed, and a batch that has completed or failed cannot be
+  cancelled: the API answers 409 and the SDK returns an `*ApiError` with
+  `Code` `invalid_batch_transition` (the message names the batch's status).
+- Repeating a call is not an error: pausing a paused batch, resuming a
+  running one and cancelling a cancelled one answer the batch as it is.
+- `ResumeBatchJob` can return a 503 `*ApiError` with `Code`
+  `dispatch_failed`: the items could not be queued and the batch is paused
+  again, so call it again. `CreateBatchJob` returns the same when the batch
+  could not be queued; nothing was started. Neither is retried by the SDK.
+- Creating or resuming over the plan's running batches returns a
+  `*ConcurrencyLimitError`; more URLs than the plan's limit is a 413
+  `*ApiError` with `Code` `batch_too_large`.
+- `ListBatchJobs(ctx, &kloakd.ListBatchJobsOptions{Page: 1, PageSize: 20})`
+  lists the organisation's batches, newest first. `ExportBatchJob` and
+  `DownloadBatchJob` (above) give the rows as a file.
+
+### Unified scrape
+
+`client.UnifiedScrape(ctx, url, opts)` lets the API choose how to scrape a
+URL: level 1 (direct extraction) or level 2 (the Strategy Engine),
+escalating when the first fails. It needs a live key whose plan has Kolektr
+and Nexus (403 `test_key_not_allowed` or `module_not_entitled` otherwise).
+
+```go
+scrape, err := client.UnifiedScrape(ctx, "https://shop.example/list", &kloakd.UnifiedScrapeOptions{
+    Prompt: "product names and prices",
+    Mode:   "auto", // or "level1", "level2"
+    Schema: map[string]string{"name": "product name", "price": "price"},
+})
+if scrape.AuthRequired {
+    // The URL is behind a login: nothing was scraped. scrape.DiscoveryID names the auth-chain discovery.
+} else {
+    job, err := client.GetUnifiedScrape(ctx, scrape.JobID) // Status, Level, Progress, Result, EscalationPath
+}
+```
+
+Options: `Prompt`, `Mode`, `Schema`, `Options`, `Context`, `Constraints`,
+`SessionArtifactID` (a login session), and `PollInterval` / `PollTimeout`
+for a request the API hands off (202), which is followed like every other
+long request.
+
 ### `client.Crawl` — discover, fetch and extract in one call
 
 ```go
@@ -543,7 +609,7 @@ if err != nil {
 }
 ```
 
-**Error types:** `KloakdError` (with `Code`, the API's error word), `AuthenticationError` (401), `PaymentRequiredError` (402), `NotEntitledError` (403 `not_entitled` / `tier_access_denied`, with `Module`, `Feature`, `CurrentTier`, `RequiredTier`), `ForbiddenError` (any other 403; `errors.As` with a `*ForbiddenError` also matches a `NotEntitledError`), `ConcurrencyLimitError` (409 `concurrent_limit`, with `Tier`, `ConcurrentLimit`, `ActiveCrawls`, `ActiveRequests`; not retried), `QuotaExceededError` (429 `gb_exhausted`), `RateLimitError` (429; `QuotaExhausted` for the playground quota), `UpstreamError` (502), `BillingUnavailableError` (503 `billing_unavailable`), `ApiError` (other 4xx/5xx; `JobID` on `job_failed` / `job_timeout` / `crawl_timeout`). A body that is not JSON becomes the message; a 422's `detail[]` is kept as `field: message; ...`.
+**Error types:** `KloakdError` (with `Code`, the API's error word), `AuthenticationError` (401), `PaymentRequiredError` (402), `NotEntitledError` (403 `not_entitled` / `tier_access_denied`, with `Module`, `Feature`, `CurrentTier`, `RequiredTier`), `ForbiddenError` (any other 403; `errors.As` with a `*ForbiddenError` also matches a `NotEntitledError`), `ConcurrencyLimitError` (409 `concurrent_limit`, with `Tier`, `ConcurrentLimit`, `ActiveCrawls`, `ActiveRequests`; not retried), `QuotaExceededError` (429 `gb_exhausted`), `RateLimitError` (429; `QuotaExhausted` for the playground quota), `UpstreamError` (502), `BillingUnavailableError` (503 `billing_unavailable`), `ApiError` (other 4xx/5xx; `JobID` on `job_failed` / `job_timeout` / `crawl_timeout`; `Code` holds the API's error code, for example 409 `invalid_batch_transition` and 503 `dispatch_failed` on the batch calls). A body that is not JSON becomes the message; a 422's `detail[]` is kept as `field: message; ...`.
 
 ## Concurrency (work slots)
 

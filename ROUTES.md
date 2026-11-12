@@ -1,8 +1,26 @@
 # Routes called by the Go SDK
 
+## After 0.6.0 (unreleased): batch jobs and the unified scrape
+
+Checked against kobe-scraper integration/2026-11-12b (228857dc): `kernel/jobs_runs_router.py`, `application/jobs/batch_control.py` and `api/v1/endpoints/unified_scraping.py`. `testdata/routes.tsv` is generated from that checkout: 280 rows. The 12 `performance/...` routes are gone from the API; the SDK called none of them. `TestContract_BatchAndUnifiedScrapeRoutesAreLiveAndCalled` checks the new calls.
+
+| Call | Change |
+|---|---|
+| `POST batch-jobs` | new: `Client.CreateBatchJob`; body `{urls, extraction_config?, crawl_id?, entity_type?, fields?}`; 201; 403 `test_key_not_allowed`, 409 `concurrent_limit`, 413 `batch_too_large`, 422 for no URLs, 503 `dispatch_failed` |
+| `GET batch-jobs` | new: `Client.ListBatchJobs`; `page`, `page_size` (1–100) |
+| `GET batch-jobs/{batch_job_id}` | new: `Client.GetBatchJob` |
+| `GET batch-jobs/{batch_job_id}/results` | new: `Client.GetBatchJobResults`; `limit` (1–1000), `offset`; each item is `{job_id, url, status, extracted_data, api_data}` |
+| `POST batch-jobs/{batch_job_id}/pause` | new: `Client.PauseBatchJob`; only a running batch; a paused one answers 200 unchanged; otherwise 409 `invalid_batch_transition` |
+| `POST batch-jobs/{batch_job_id}/resume` | new: `Client.ResumeBatchJob`; only a paused batch; a running one answers 200 unchanged; otherwise 409 `invalid_batch_transition`; 409 `concurrent_limit`; 503 `dispatch_failed` (paused again) |
+| `POST batch-jobs/{batch_job_id}/cancel` | new: `Client.CancelBatchJob`; a cancelled one answers 200 unchanged; 409 `invalid_batch_transition` once completed or failed |
+| `POST scraping/unified` | new: `Client.UnifiedScrape`; body `{url, prompt?, mode?, schema?, options?, context?, constraints?, session_artifact_id?}`; a 202 hand-off is followed through `GET handoff/{job_id}`; 403 `test_key_not_allowed`, `module_not_entitled` |
+| `GET scraping/unified/{job_id}` | new: `Client.GetUnifiedScrape` |
+
+Not covered, by choice: `DELETE batch/{batch_job_id}`, `POST batch/url-import` and the event stream `GET batch-jobs/{batch_job_id}/stream`. There is no batch waiter.
+
 ## After 0.6.0 (unreleased): checked against kobe-scraper 6bd19e9b
 
-Checked against kobe-scraper main at 6bd19e9b: `modules/webgrph/router.py` (`CrawlStatusResponse`, `get_crawl_status`, `continue_crawl`, `NodeMetadata`), `modules/webgrph/crawl_extract_router.py` (`_crawl_headers`, `get_crawl_extract`), `modules/webgrph/crawl_extract.py` (`crawl_truth`), `billing/held_work.py`, `modules/fetchyr/router.py` (`LoginSessionRequest`, `LoginSessionResponse`, `SessionStatusResponse`), `modules/kolektr/router.py` (`ExtractResponse`), `kernel/batch_export_router.py`. `testdata/routes.tsv` is the route list of that commit (292 rows), replacing the hand-edited copy; `TestContract_ContinueAndLoginSessionRoutesAreLiveAndCalled` checks the new calls.
+Checked against kobe-scraper main at 6bd19e9b: `modules/webgrph/router.py` (`CrawlStatusResponse`, `get_crawl_status`, `continue_crawl`, `NodeMetadata`), `modules/webgrph/crawl_extract_router.py` (`_crawl_headers`, `get_crawl_extract`), `modules/webgrph/crawl_extract.py` (`crawl_truth`), `billing/held_work.py`, `modules/fetchyr/router.py` (`LoginSessionRequest`, `LoginSessionResponse`, `SessionStatusResponse`), `modules/kolektr/router.py` (`ExtractResponse`), `kernel/batch_export_router.py`. `testdata/routes.tsv` was then the route list of that commit (292 rows), replacing the hand-edited copy; `TestContract_ContinueAndLoginSessionRoutesAreLiveAndCalled` checks the new calls.
 
 | Call | Change |
 |---|---|
@@ -21,8 +39,7 @@ Routes removed from the API since the last check, none of which the SDK called: 
 
 Still not covered by the SDK:
 
-- `POST scraping/unified` and `GET scraping/unified/{job_id}`: no method.
-- Batch jobs: only the export is covered (`ExportBatchJob`, `DownloadBatchJob`). There is no method to create, list, read, stream, pause, resume or cancel a batch job, and no batch waiter.
+- The batch event stream, `DELETE batch/{batch_job_id}` and `POST batch/url-import`; there is no batch waiter. (The other batch routes and the unified scrape are covered: see the section above.)
 - `POST kolektr/api-data/{api_endpoint}/extract-all` and `GET kolektr/extraction-jobs/{job_id}/status` return the API's answer as a map; there is no waiter for an extract-all job, so nothing in the SDK stops at its `held_quota` status. Read `status` and `message` from the map.
 - The handed-off job follower (`GET handoff/{job_id}`) knows running, completed and failed only.
 - The activity and webhook-delivery routes added to the route list.
@@ -44,7 +61,7 @@ Checked against kobe-scraper e5e358aa: `modules/nexus/router.py`, `modules/webgr
 | `POST webgrph/crawl-extract/{job_id}/cancel` | new: `CancelCrawlExtract`; 409 once the job has ended |
 | `GET batch-jobs/{batch_job_id}/export` | new: `Client.ExportBatchJob`, `Client.DownloadBatchJob`; sends no `X-Job-Status` |
 
-The API also hands off `POST scraping/unified` (202); the SDK has no method for it.
+The API also hands off `POST scraping/unified` (202); `Client.UnifiedScrape` follows it (see the first section).
 
 ## 0.5.0 → 0.6.0
 

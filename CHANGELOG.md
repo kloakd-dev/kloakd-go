@@ -4,8 +4,9 @@ All notable changes to the KLOAKD Go SDK are documented here.
 
 ## [Unreleased]
 
-For the API at kobe-scraper 6bd19e9b. **Breaking**: two methods are
-removed, so the next release is v0.7.0.
+For the API at kobe-scraper 6bd19e9b; the batch and unified scrape
+methods and the route list are of integration/2026-11-12b (228857dc).
+**Breaking**: two methods are removed, so the next release is v0.7.0.
 
 ### Removed
 - `Nexus.Execute` and `NexusExecuteResult`: the API removed
@@ -50,6 +51,19 @@ removed, so the next release is v0.7.0.
   `StartLoginSession` (`LoginSessionOptions`, `LoginCookie`,
   `LoginSession`), `GetSession` (`SessionStatus`), `ResumeSession`.
 - `ExtractionResult.Level`, `LevelReason`, `LoginOptions`.
+- Batch jobs (`Client`): `CreateBatchJob(ctx, urls, opts)`, `GetBatchJob`,
+  `ListBatchJobs`, `GetBatchJobResults`, `PauseBatchJob`, `ResumeBatchJob`,
+  `CancelBatchJob`. A control the batch's state does not allow is a 409
+  `*ApiError` with `Code` `invalid_batch_transition`; repeating a control
+  answers the batch as it is; a resume or a create that could not be queued
+  is a 503 `*ApiError` with `Code` `dispatch_failed` and is not retried.
+  Types `BatchJob`, `BatchJobsPage`, `BatchJobItem`, `BatchJobResults`,
+  `BatchJobOptions`, `ListBatchJobsOptions`, `BatchJobResultsOptions`.
+- Unified scrape (`Client`): `UnifiedScrape(ctx, url, opts)` (`POST
+  scraping/unified`, a 202 hand-off is followed) and
+  `GetUnifiedScrape(ctx, jobID)`. Types `UnifiedScrapeOptions`,
+  `UnifiedScrapeResult`, `UnifiedScrapeStatus`, `UnifiedScrapeProgress`,
+  `UnifiedEscalation`.
 
 ### Changed
 - Exports are streamed and are not bound by `Config.Timeout`.
@@ -60,8 +74,9 @@ removed, so the next release is v0.7.0.
 - `Webgrph.WaitForCrawlExtract` and `Webgrph.CrawlExtract` return when
   the job's crawl is held (`Held` true). Before, they polled until
   `job_timeout`.
-- `testdata/routes.tsv` is the route list of kobe-scraper 6bd19e9b
-  (292 routes).
+- `testdata/routes.tsv` is the route list of kobe-scraper
+  integration/2026-11-12b (228857dc): 280 routes. The API removed its 12
+  `performance/...` routes; the SDK called none.
 
 ## [0.6.0] — 2026-11-03
 
