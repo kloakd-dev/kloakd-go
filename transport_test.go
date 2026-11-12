@@ -329,8 +329,8 @@ func TestTransport_UserAgentAndVersion(t *testing.T) {
 	}))
 	defer server.Close()
 	_, _ = newTestClient(server).Evadr.ListVendors(context.Background())
-	assertHeader(t, got, "User-Agent", "kloakd-sdk-go/0.6.0")
-	assertHeader(t, got, "X-Kloakd-SDK", "go/0.6.0")
+	assertHeader(t, got, "User-Agent", "kloakd-sdk-go/0.7.0")
+	assertHeader(t, got, "X-Kloakd-SDK", "go/0.7.0")
 }
 
 func TestTransport_PathSegmentsAreEscaped(t *testing.T) {

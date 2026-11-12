@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	sdkVersion     = "0.6.0"
+	sdkVersion     = "0.7.0"
 	userAgent      = "kloakd-sdk-go/" + sdkVersion
 	defaultBaseURL = "https://api.kloakd.dev"
 	// defaultTimeout is above the API's 85 s synchronous wait

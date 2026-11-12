@@ -1,6 +1,6 @@
 # Routes called by the Go SDK
 
-## After 0.6.0 (unreleased): batch jobs and the unified scrape
+## 0.7.0: batch jobs and the unified scrape
 
 Checked against kobe-scraper integration/2026-11-12b (228857dc): `kernel/jobs_runs_router.py`, `application/jobs/batch_control.py` and `api/v1/endpoints/unified_scraping.py`. `testdata/routes.tsv` is generated from that checkout: 280 rows. The 12 `performance/...` routes are gone from the API; the SDK called none of them. `TestContract_BatchAndUnifiedScrapeRoutesAreLiveAndCalled` checks the new calls.
 
@@ -18,7 +18,7 @@ Checked against kobe-scraper integration/2026-11-12b (228857dc): `kernel/jobs_ru
 
 Not covered, by choice: `DELETE batch/{batch_job_id}`, `POST batch/url-import` and the event stream `GET batch-jobs/{batch_job_id}/stream`. There is no batch waiter.
 
-## After 0.6.0 (unreleased): checked against kobe-scraper 6bd19e9b
+## 0.7.0: checked against kobe-scraper 6bd19e9b
 
 Checked against kobe-scraper main at 6bd19e9b: `modules/webgrph/router.py` (`CrawlStatusResponse`, `get_crawl_status`, `continue_crawl`, `NodeMetadata`), `modules/webgrph/crawl_extract_router.py` (`_crawl_headers`, `get_crawl_extract`), `modules/webgrph/crawl_extract.py` (`crawl_truth`), `billing/held_work.py`, `modules/fetchyr/router.py` (`LoginSessionRequest`, `LoginSessionResponse`, `SessionStatusResponse`), `modules/kolektr/router.py` (`ExtractResponse`), `kernel/batch_export_router.py`. `testdata/routes.tsv` was then the route list of that commit (292 rows), replacing the hand-edited copy; `TestContract_ContinueAndLoginSessionRoutesAreLiveAndCalled` checks the new calls.
 
@@ -44,11 +44,11 @@ Still not covered by the SDK:
 - The handed-off job follower (`GET handoff/{job_id}`) knows running, completed and failed only.
 - The activity and webhook-delivery routes added to the route list.
 
-## After 0.6.0 (unreleased): first pass
+## 0.7.0: first pass
 
 Checked against kobe-scraper e5e358aa: `modules/nexus/router.py`, `modules/webgrph/crawl_extract_router.py`, `kernel/batch_export_router.py`, `scripts/generate_public_openapi.py` (`EXCLUDED`). `testdata/routes.tsv` was then edited by hand (`POST nexus/execute` removed, the six crawl-extract routes and the batch export added); the section above replaces it with the full route list (`TestContract_NexusExecuteIsGoneAndCrawlExtractIsCalled` still holds).
 
-| Call | After 0.6.0 |
+| Call | 0.7.0 |
 |---|---|
 | `POST nexus/execute` | removed from the API; `Nexus.Execute` and `NexusExecuteResult` removed |
 | `POST nexus/knowledge` | body is now `{strategy_id, url, outcome}`; the route is left out of the public API; `Nexus.Knowledge` and `NexusKnowledgeResult` removed |

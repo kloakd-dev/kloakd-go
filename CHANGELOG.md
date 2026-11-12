@@ -2,11 +2,11 @@
 
 All notable changes to the KLOAKD Go SDK are documented here.
 
-## [Unreleased]
+## [0.7.0] — 2026-11-12
 
 For the API at kobe-scraper 6bd19e9b; the batch and unified scrape
 methods and the route list are of integration/2026-11-12b (228857dc).
-**Breaking**: two methods are removed, so the next release is v0.7.0.
+**Breaking**: two methods are removed, so this release is v0.7.0.
 
 ### Removed
 - `Nexus.Execute` and `NexusExecuteResult`: the API removed
@@ -77,6 +77,7 @@ methods and the route list are of integration/2026-11-12b (228857dc).
 - `testdata/routes.tsv` is the route list of kobe-scraper
   integration/2026-11-12b (228857dc): 280 routes. The API removed its 12
   `performance/...` routes; the SDK called none.
+- Version 0.7.0 (`User-Agent: kloakd-sdk-go/0.7.0`, `X-Kloakd-SDK: go/0.7.0`).
 
 ## [0.6.0] — 2026-11-03
 
