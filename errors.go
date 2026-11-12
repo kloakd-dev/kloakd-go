@@ -85,7 +85,9 @@ type ConcurrencyLimitError struct {
 	// ConcurrentLimit is how many slots the plan has (detail.concurrent_limit).
 	ConcurrentLimit int
 	// ActiveCrawls is the crawls and batches running or queued
-	// (detail.active_crawls).
+	// (detail.active_crawls). For the batch limit (CreateBatchJob,
+	// ResumeBatchJob) it is detail.active_batches: the batches pending or
+	// running.
 	ActiveCrawls int
 	// ActiveRequests is the other metered requests in flight
 	// (detail.active_requests; 0.6.0).
@@ -313,11 +315,17 @@ func raiseForStatus(statusCode int, body map[string]interface{}, headers http.He
 	case statusCode == 403:
 		return &ForbiddenError{KloakdError: base}
 	case statusCode == 409 && code == "concurrent_limit":
+		// The batch limit (kernel/jobs_runs_router.py
+		// _check_batch_concurrency) sends its count as active_batches.
+		active := num("active_crawls")
+		if _, ok := detail["active_crawls"]; !ok {
+			active = num("active_batches")
+		}
 		return &ConcurrencyLimitError{
 			KloakdError:     base,
 			Tier:            str("tier"),
 			ConcurrentLimit: int(num("concurrent_limit")),
-			ActiveCrawls:    int(num("active_crawls")),
+			ActiveCrawls:    int(active),
 			ActiveRequests:  int(num("active_requests")),
 			TestKeyID:       str("test_key_id"),
 		}

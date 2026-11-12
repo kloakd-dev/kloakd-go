@@ -64,6 +64,9 @@ methods and the route list are of integration/2026-11-12b (228857dc).
   `GetUnifiedScrape(ctx, jobID)`. Types `UnifiedScrapeOptions`,
   `UnifiedScrapeResult`, `UnifiedScrapeStatus`, `UnifiedScrapeProgress`,
   `UnifiedEscalation`.
+- `ConcurrencyLimitError.ActiveCrawls` is also filled from the batch
+  limit's 409 (`CreateBatchJob`, `ResumeBatchJob`), which sends the count
+  as `active_batches`.
 
 ### Changed
 - Exports are streamed and are not bound by `Config.Timeout`.

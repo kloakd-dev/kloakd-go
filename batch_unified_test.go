@@ -98,6 +98,10 @@ func TestBatch_Create_OverTheRunningBatchesLimitIsConcurrencyLimitErrorAndNotRet
 	if !errorsAs(err, &e) || e.Code != "concurrent_limit" || e.ConcurrentLimit != 2 || e.Tier != "free" {
 		t.Fatalf("expected ConcurrencyLimitError, got %T %v", err, err)
 	}
+	// detail.active_batches (kernel/jobs_runs_router.py _check_batch_concurrency)
+	if e.ActiveCrawls != 2 {
+		t.Errorf("ActiveCrawls = %d, want 2 (detail.active_batches)", e.ActiveCrawls)
+	}
 	if len(rs.seen) != 1 {
 		t.Errorf("expected one call, saw %v", rs.seen)
 	}

@@ -361,6 +361,10 @@ func parseEscalations(v interface{}) []UnifiedEscalation {
 // job (202) is followed to its result. The answer names the job; read its
 // state and data with GetUnifiedScrape. When the URL is behind a login the
 // answer has AuthRequired true and nothing was scraped.
+//
+// Check Status: when the scrape fails the API still answers with Success
+// true and Status "failed", without the error text, and that answer's JobID
+// names no stored job, so GetUnifiedScrape on it is the API's 404.
 func (c *Client) UnifiedScrape(ctx context.Context, targetURL string, opts *UnifiedScrapeOptions) (*UnifiedScrapeResult, error) {
 	body := map[string]interface{}{"url": targetURL}
 	var poll *PollOptions

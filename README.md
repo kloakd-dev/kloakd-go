@@ -390,10 +390,17 @@ scrape, err := client.UnifiedScrape(ctx, "https://shop.example/list", &kloakd.Un
 })
 if scrape.AuthRequired {
     // The URL is behind a login: nothing was scraped. scrape.DiscoveryID names the auth-chain discovery.
+} else if scrape.Status == "failed" {
+    // The scrape failed. Success is still true and there is no error text;
+    // JobID names no stored job (GetUnifiedScrape would be a 404).
 } else {
     job, err := client.GetUnifiedScrape(ctx, scrape.JobID) // Status, Level, Progress, Result, EscalationPath
 }
 ```
+
+Check `Status`: when the scrape fails the API still answers with `Success`
+true and `Status` `"failed"`, without the error text, and that answer's
+`JobID` names no stored job, so `GetUnifiedScrape` on it is a 404.
 
 Options: `Prompt`, `Mode`, `Schema`, `Options`, `Context`, `Constraints`,
 `SessionArtifactID` (a login session), and `PollInterval` / `PollTimeout`
