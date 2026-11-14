@@ -157,7 +157,13 @@ type CrawlExtractStatus struct {
 	// organization's quota ran out (Crawl.Status "held_quota"). The job
 	// itself keeps its status and waits; see WaitForCrawlExtract.
 	Held bool
-	Raw  map[string]interface{}
+	// TimeBudgetS is the job's crawl time budget in seconds, ElapsedS the
+	// time used and EstRemainingS the estimated time left. nil until the
+	// crawl has reported them.
+	TimeBudgetS   *int
+	ElapsedS      *float64
+	EstRemainingS *float64
+	Raw           map[string]interface{}
 }
 
 // CrawlExtractCrawl is the crawl of a crawl-extract job, as the job's
@@ -879,6 +885,9 @@ func parseCrawlExtractStatus(raw map[string]interface{}) *CrawlExtractStatus {
 		Shapes:        shapes,
 		Crawl:         crawl,
 		Held:          crawl != nil && crawl.Status == crawlHeldQuota,
+		TimeBudgetS:   optIntField(raw, "time_budget_s"),
+		ElapsedS:      optFloatField(raw, "elapsed_s"),
+		EstRemainingS: optFloatField(raw, "est_remaining_s"),
 		Raw:           raw,
 	}
 }

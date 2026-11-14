@@ -2,6 +2,28 @@
 
 All notable changes to the KLOAKD Go SDK are documented here.
 
+## [Unreleased]
+
+For the crawl estimate contract of 14 Nov 2026 (CRAWL-ESTIMATE-CONTRACT.md),
+which the API builds on feature/2026-11-14-crawl-estimate.
+
+### Added
+- `Webgrph.EstimateCrawl` and `Webgrph.EstimateCrawlExtract`
+  (`POST webgrph/crawl/estimate`, `POST webgrph/crawl-extract/estimate`),
+  returning a `CrawlEstimate` (`CrawlEstimatePlanLimits`,
+  `CrawlEstimateSite`, `CrawlEstimatePages`, `CrawlEstimateDuration`);
+  options `CrawlEstimateOptions`, `CrawlExtractEstimateOptions`. Not metered.
+- `Webgrph.ContinueCrawl` takes an optional `*ContinueOptions`
+  (`MaxPages`, `MaxDepth`) to raise the crawl's limits; existing calls
+  compile and send no body, as before.
+- `Webgrph.ContinueCrawlExtract`
+  (`POST webgrph/crawl-extract/{job_id}/continue`), returning
+  `CrawlExtractContinueResult`.
+- `CrawlResult` and `CrawlExtractStatus`: `TimeBudgetS`, `ElapsedS`,
+  `EstRemainingS` (nil until the crawl reports them).
+- `testdata/routes.tsv`: the three new routes, added by hand from the
+  contract (283 rows).
+
 ## [0.7.0] — 2026-11-12
 
 For the API at kobe-scraper 6bd19e9b; the batch and unified scrape

@@ -194,6 +194,43 @@ sessions, err := client.Webgrph.ListSessions(ctx, true)
 view, err := client.Webgrph.ReaderView(ctx, url, &kloakd.ReaderViewOptions{CrawlID: crawl.CrawlID})
 ```
 
+#### Estimate, then start
+
+A crawl maps the site's pages and links; crawl-extract also returns the items on each page as rows.
+
+Before starting a job, ask the API what it will do. The estimate is not
+metered (no charge, no work slot). It gives the depth and page cap after
+your plan's limits (`Clamped` when a value was lowered), the pages the site
+seems to have (`Site.SitemapPages`, `Site.HomepageLinks`), the pages the
+job will fetch (`EstPages.Low`–`EstPages.High`, with `EstPages.Source`
+`sitemap`, `homepage_links` or `limit`), the time budget the crawl will use
+(`TimeBudgetS`), a duration range in seconds (`EstDurationS`), the data use
+(`EstGB` against `GBRemaining`), any `Warning`, and an `Explanation` of the
+mode. Then start with the values you accept, or adjust and estimate again.
+
+```go
+est, err := client.Webgrph.EstimateCrawl(ctx, url, &kloakd.CrawlEstimateOptions{MaxDepth: 2, MaxPages: 100})
+if err != nil {
+    return err
+}
+fmt.Printf("%d-%d pages (%s), %.0f-%.0f s, %.2f GB\n", est.EstPages.Low, est.EstPages.High,
+    est.EstPages.Source, est.EstDurationS.Low, est.EstDurationS.High, est.EstGB)
+if est.Warning != nil {
+    fmt.Println(*est.Warning)
+}
+started, err := client.Webgrph.StartCrawl(ctx, url, &kloakd.CrawlOptions{MaxDepth: est.MaxDepth, MaxPages: est.MaxPages})
+
+// The same for crawl-extract (the plan needs Kolektr)
+est, err = client.Webgrph.EstimateCrawlExtract(ctx, url, &kloakd.CrawlExtractEstimateOptions{
+    MaxPages: 200,
+    Extract:  &kloakd.CrawlExtractSpec{Fields: []string{"title", "price"}},
+})
+```
+
+While a crawl runs, its status has `TimeBudgetS`, `ElapsedS` and
+`EstRemainingS` (`CrawlResult` and `CrawlExtractStatus`); they are nil until
+the crawl reports them.
+
 #### Held crawls
 
 When the organization's quota runs out, the API pauses a running crawl: its
@@ -253,6 +290,21 @@ if crawl.Resumable {
     }
     crawl, err = client.Webgrph.WaitForCrawl(ctx, crawl.CrawlID, nil)
 }
+```
+
+`ContinueCrawl` also takes a `*kloakd.ContinueOptions` to raise
+`MaxPages` or `MaxDepth`; without one it sends no body, as before. The API
+clamps the values to your plan and only raises them (a lower value is a 422
+with `Code` `"continue_cannot_lower"`). A crawl that stopped at `max_pages`
+can be continued this way with a larger `MaxPages`. Estimate first with
+`EstimateCrawl` to see what the larger crawl will take.
+
+```go
+_, err = client.Webgrph.ContinueCrawl(ctx, crawl.CrawlID, &kloakd.ContinueOptions{MaxPages: 500})
+
+// A crawl-extract job: continues the crawl, then extracts the new pages
+_, err = client.Webgrph.ContinueCrawlExtract(ctx, job.JobID, &kloakd.ContinueOptions{MaxPages: 500})
+done, err = client.Webgrph.WaitForCrawlExtract(ctx, job.JobID, nil)
 ```
 
 ### Crawl, extract and download in one job
