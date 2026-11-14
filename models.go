@@ -149,6 +149,12 @@ type CrawlResult struct {
 	// ErrorCode is the API's code for a failed crawl, e.g.
 	// "held_quota_expired".
 	ErrorCode *string
+	// TimeBudgetS is the crawl's time budget in seconds, ElapsedS the time
+	// it has used and EstRemainingS the estimated time left. nil until the
+	// crawl has reported them.
+	TimeBudgetS   *int
+	ElapsedS      *float64
+	EstRemainingS *float64
 }
 
 // CrawlEvent is yielded by Webgrph.CrawlStream and Webgrph.CrawlEvents: a

@@ -628,7 +628,11 @@ func TestContract_BatchAndUnifiedScrapeRoutesAreLiveAndCalled(t *testing.T) {
 
 // testdata/routes.tsv is the route list of kobe-scraper
 // integration/2026-11-12b (228857dc): 280 routes, without the 12
-// performance routes the API removed.
+// performance routes the API removed, plus the three routes of
+// CRAWL-ESTIMATE-CONTRACT.md (14 Nov 2026) added by hand while the API
+// builds them on feature/2026-11-14-crawl-estimate: POST
+// webgrph/crawl/estimate, POST webgrph/crawl-extract/estimate and POST
+// webgrph/crawl-extract/{job_id}/continue.
 func TestContract_TheRouteListIsTheIntegrationBranchs(t *testing.T) {
 	f, err := os.Open(filepath.Join("testdata", "routes.tsv"))
 	if err != nil {
@@ -646,7 +650,7 @@ func TestContract_TheRouteListIsTheIntegrationBranchs(t *testing.T) {
 			t.Errorf("a removed performance route is still listed: %s", sc.Text())
 		}
 	}
-	if rows != 280 {
-		t.Errorf("expected 280 routes, found %d", rows)
+	if rows != 283 {
+		t.Errorf("expected 283 routes, found %d", rows)
 	}
 }

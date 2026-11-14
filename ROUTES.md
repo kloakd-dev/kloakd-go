@@ -1,5 +1,17 @@
 # Routes called by the Go SDK
 
+## Unreleased: crawl estimate and continue with options
+
+From CRAWL-ESTIMATE-CONTRACT.md (14 Nov 2026); the API builds these on feature/2026-11-14-crawl-estimate, so they are not yet checked against a kobe-scraper commit. The three new routes were added to `testdata/routes.tsv` by hand (283 rows); `TestContract_EstimateAndContinueRoutesAreCalled` checks them. Re-check against the API's branch before release.
+
+| Call | Change |
+|---|---|
+| `POST webgrph/crawl/estimate` | new: `EstimateCrawl`; body `{url, max_depth?, max_pages?}`; answers 200 `CrawlEstimate` |
+| `POST webgrph/crawl-extract/estimate` | new: `EstimateCrawlExtract`; body `{url, max_depth?, max_pages?, extract?}` |
+| `POST webgrph/crawl/{crawl_id}/continue` | optional body `{max_pages?, max_depth?}` (`ContinueOptions`); no body without options; 422 `continue_cannot_lower` |
+| `POST webgrph/crawl-extract/{job_id}/continue` | new: `ContinueCrawlExtract`; same body |
+| `GET webgrph/crawl/{crawl_id}`, `GET webgrph/crawl-extract/{job_id}` | read `time_budget_s`, `elapsed_s`, `est_remaining_s` |
+
 ## 0.7.0: batch jobs and the unified scrape
 
 Checked against kobe-scraper integration/2026-11-12b (228857dc): `kernel/jobs_runs_router.py`, `application/jobs/batch_control.py` and `api/v1/endpoints/unified_scraping.py`. `testdata/routes.tsv` is generated from that checkout: 280 rows. The 12 `performance/...` routes are gone from the API; the SDK called none of them. `TestContract_BatchAndUnifiedScrapeRoutesAreLiveAndCalled` checks the new calls.

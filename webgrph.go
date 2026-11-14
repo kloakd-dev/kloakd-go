@@ -216,6 +216,9 @@ func crawlResultFromStatus(crawlID string, status map[string]interface{}) *Crawl
 		PagesFetched:    optIntField(status, "pages_fetched"),
 		PagesUnfetched:  optIntField(status, "pages_unfetched"),
 		ErrorCode:       optStrField(status, "error_code"),
+		TimeBudgetS:     optIntField(status, "time_budget_s"),
+		ElapsedS:        optFloatField(status, "elapsed_s"),
+		EstRemainingS:   optFloatField(status, "est_remaining_s"),
 	}
 }
 
@@ -233,8 +236,14 @@ type CrawlContinueResult struct {
 // crawl keeps its id, so wait for it again with WaitForCrawl. For any other
 // crawl (not ended, not stopped at its time budget, or already being
 // continued) the API answers 409, returned as an *ApiError.
-func (w *WebgrphNamespace) ContinueCrawl(ctx context.Context, crawlID string) (*CrawlContinueResult, error) {
-	raw, err := w.t.post(ctx, pathf("webgrph/crawl/%s/continue", crawlID), nil)
+//
+// With no options it sends no body, as before. With a *ContinueOptions it
+// sends {max_pages, max_depth} (the set ones): the API clamps them to the
+// plan and only raises them (a lower value is a 422 with Code
+// "continue_cannot_lower"). A crawl that stopped at max_pages can then be
+// continued with a larger MaxPages.
+func (w *WebgrphNamespace) ContinueCrawl(ctx context.Context, crawlID string, opts ...*ContinueOptions) (*CrawlContinueResult, error) {
+	raw, err := w.t.post(ctx, pathf("webgrph/crawl/%s/continue", crawlID), continueBody(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +304,7 @@ func (w *WebgrphNamespace) CrawlStream(ctx context.Context, targetURL string, op
 // (running, completed, failed, cancelled or held_quota), total_pages,
 // message, and the outcome fields CrawlResult names (is_partial,
 // partial_reason, resumable, pages_discovered, pages_fetched,
-// pages_unfetched, error_code).
+// pages_unfetched, error_code, time_budget_s, elapsed_s, est_remaining_s).
 func (w *WebgrphNamespace) GetCrawlStatus(ctx context.Context, crawlID string) (map[string]interface{}, error) {
 	return w.t.get(ctx, pathf("webgrph/crawl/%s", crawlID), nil)
 }
