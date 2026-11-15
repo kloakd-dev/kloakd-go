@@ -2,7 +2,7 @@
 
 ## Unreleased: cost control
 
-From COST-CONTROL-CONTRACT.md (15 Nov 2026), built on kobe-scraper feature/2026-11-15-cost-control. The estimate, fetch/extract `include_resources` and crawl-extract continue rows were checked against its routers at 964ba78c by the coordinating agent; the route list itself was not regenerated. The three new routes were added to `testdata/routes.tsv` by hand (286 rows); `TestContract_CostControlRoutesAreCalled` checks them. Re-check against the API's branch before release.
+From COST-CONTROL-CONTRACT.md (15 Nov 2026), built on kobe-scraper feature/2026-11-15-cost-control. The estimate, fetch/extract `include_resources` and crawl-extract continue rows were checked against its routers at 964ba78c by the coordinating agent; and checked on 15 Nov against the route table of kobe-scraper feature/2026-11-15-cost-control at f6403fc5, generated with the module routers mounted as `kernel/bootstrap.py` does: it matches the 286 rows here except routes these lists have never carried (FastAPI's `/docs`, `/redoc`, `/openapi.json`, and the watcher and crawler health routes under `/api/v1/health/`, which take the watch token), so the list stands as the generated one. The three new routes were added to `testdata/routes.tsv` by hand (286 rows); `TestContract_CostControlRoutesAreCalled` checks them. 
 
 | Call | Change |
 |---|---|
