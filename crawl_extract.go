@@ -88,7 +88,8 @@ type CrawlExtractOptions struct {
 	// Cost control (COST-CONTROL-CONTRACT.md, 15 Nov 2026); zero values
 	// are not sent. IncludeResources lists the page extras to load
 	// (ResourceImages, ResourceMedia, ResourceFonts, ResourceStylesheets,
-	// ResourceTracking): none by default. MaxDataMB is the job's data
+	// ResourceTracking): none by default; with CaptureMode "visual",
+	// images and stylesheets are included automatically. MaxDataMB is the job's data
 	// limit in MB (0: no per-job limit); at the limit the job ends partial
 	// with PartialReason "data_limit". EstimateID is the
 	// CrawlEstimate.EstimateID the user accepted, and CostAcknowledged

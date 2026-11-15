@@ -456,6 +456,52 @@ func TestErrors_CostAcknowledgementRequired(t *testing.T) {
 	}
 }
 
+func TestEvadrFetchAndKolektrExtract_IncludeResources(t *testing.T) {
+	fetched := map[string]interface{}{"success": true, "url": "https://example.com/", "status_code": float64(200), "html": "<html></html>"}
+	extracted := map[string]interface{}{"success": true, "url": "https://example.com/", "records": []interface{}{}}
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST evadr/fetch":     jsonHandler(200, fetched),
+		"POST kolektr/extract": jsonHandler(200, extracted),
+	})
+	defer server.Close()
+	c := newTestClient(server)
+	ctx := context.Background()
+
+	// Unset: the body is exactly what it was before.
+	if _, err := c.Evadr.Fetch(ctx, "https://example.com/", &FetchOptions{UseProxy: true}); err != nil {
+		t.Fatal(err)
+	}
+	if body := rs.bodies["POST evadr/fetch"]; !reflect.DeepEqual(body, map[string]interface{}{"url": "https://example.com/", "use_proxy": true}) {
+		t.Errorf("unexpected fetch body: %v", body)
+	}
+	if _, err := c.Evadr.Fetch(ctx, "https://example.com/", nil); err != nil {
+		t.Fatal(err)
+	}
+	if body := rs.bodies["POST evadr/fetch"]; len(body) != 1 {
+		t.Errorf("unexpected fetch body: %v", body)
+	}
+	if _, err := c.Kolektr.Extract(ctx, "https://example.com/", &ExtractOptions{Level: "fast"}); err != nil {
+		t.Fatal(err)
+	}
+	if body := rs.bodies["POST kolektr/extract"]; !reflect.DeepEqual(body, map[string]interface{}{"url": "https://example.com/", "level": "fast"}) {
+		t.Errorf("unexpected extract body: %v", body)
+	}
+
+	// Set: sent as include_resources.
+	if _, err := c.Evadr.Fetch(ctx, "https://example.com/", &FetchOptions{IncludeResources: []string{ResourceImages, ResourceFonts}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.bodies["POST evadr/fetch"]["include_resources"]; !reflect.DeepEqual(got, []interface{}{"images", "fonts"}) {
+		t.Errorf("unexpected fetch include_resources: %v", got)
+	}
+	if _, err := c.Kolektr.Extract(ctx, "https://example.com/", &ExtractOptions{IncludeResources: []string{ResourceStylesheets}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.bodies["POST kolektr/extract"]["include_resources"]; !reflect.DeepEqual(got, []interface{}{"stylesheets"}) {
+		t.Errorf("unexpected extract include_resources: %v", got)
+	}
+}
+
 func TestContract_CostControlRoutesAreCalled(t *testing.T) {
 	live, calls := liveRoutes(t), sdkCalls(t)
 	for _, key := range []string{"POST webgrph/map", "GET artifacts/{}", "GET artifacts/{}/content"} {

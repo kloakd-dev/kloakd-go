@@ -33,6 +33,11 @@ which the API builds on feature/2026-11-15-cost-control.
   (sent only when set; existing calls send the same body as before).
   Constants `ResourceImages`, `ResourceMedia`, `ResourceFonts`,
   `ResourceStylesheets`, `ResourceTracking`.
+- `FetchOptions.IncludeResources` (`Evadr.Fetch`, `POST evadr/fetch`) and
+  `ExtractOptions.IncludeResources` (`Kolektr.Extract`,
+  `POST kolektr/extract`), sent only when set: page extras are off by
+  default on every browser route. With `CaptureMode` "visual", a crawl
+  includes images and stylesheets automatically.
 - `ContinueOptions.MaxDataMB`: raise a job's data limit when continuing it.
 - `CrawlEstimateOptions` and `CrawlExtractEstimateOptions`:
   `IncludeResources`. `CrawlEstimate`: `IncludeResources`, `Data`

@@ -10,6 +10,7 @@ From COST-CONTROL-CONTRACT.md (15 Nov 2026); the API builds these on feature/202
 | `POST webgrph/crawl/{crawl_id}/continue`, `POST webgrph/crawl-extract/{job_id}/continue` | body adds `max_data_mb?` (`ContinueOptions.MaxDataMB`) |
 | `POST webgrph/crawl/estimate`, `POST webgrph/crawl-extract/estimate` | body adds `include_resources?`; reads `include_resources`, `data`, `share_of_remaining`, `consent_required`, `risks`, `suggested_max_data_mb`, `estimate_id` |
 | `GET webgrph/crawl/{crawl_id}`, `GET webgrph/crawl-extract/{job_id}` | read `data_used_mb`, `max_data_mb`, `include_resources`; `partial_reason` may be `data_limit` |
+| `POST evadr/fetch`, `POST kolektr/extract` | body adds `include_resources?` (`FetchOptions`, `ExtractOptions`); extras are off by default on every browser route |
 | `POST webgrph/map` | new: `MapSite`; body `{url, max_urls?}`; answers `SiteMap` |
 | `GET artifacts/{artifact_id}` | new: `GetArtifact`; answers `Artifact` `{id, type (FETCHED_CONTENT, DEGRADED_FETCHED_CONTENT), url, created_at, size_bytes, content_type, final_url, status_code, verified, content_url}`; 404 `Artifact not found`, 403 wrong org, 422 non-UUID id |
 | `GET artifacts/{artifact_id}/content` | new: `DownloadArtifact`, `SaveArtifact`; the raw HTML, `text/html; charset=utf-8`, attachment `<host>-<id8>.html`; same errors |

@@ -16,6 +16,12 @@ type FetchOptions struct {
 	ForceBrowser      bool
 	UseProxy          bool
 	SessionArtifactID string
+	// IncludeResources lists the page extras the browser loads
+	// (ResourceImages, ResourceMedia, ResourceFonts, ResourceStylesheets,
+	// ResourceTracking), sent as include_resources only when set. Page
+	// extras are off by default on every browser route: unset means none
+	// (the page's document, scripts and data are always loaded).
+	IncludeResources []string
 	// PollInterval and PollTimeout override Config.PollInterval /
 	// PollTimeout for following a fetch the API hands off as a job (HTTP
 	// 202, after about 85 s); ctx cancellation also stops the wait.
@@ -45,6 +51,7 @@ func (e *EvadrNamespace) Fetch(ctx context.Context, targetURL string, opts *Fetc
 		if opts.SessionArtifactID != "" {
 			body["session_artifact_id"] = opts.SessionArtifactID
 		}
+		costControl{IncludeResources: opts.IncludeResources}.apply(body)
 	}
 
 	var poll *PollOptions

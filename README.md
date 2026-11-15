@@ -237,7 +237,17 @@ A page's extras (images, video and audio, fonts, stylesheets and tracking)
 are **not loaded by default**; its document, scripts and data always are.
 Ask for an extra per job with `IncludeResources` (`kloakd.ResourceImages`,
 `ResourceMedia`, `ResourceFonts`, `ResourceStylesheets`, `ResourceTracking`)
-on `CrawlOptions`, `CrawlExtractOptions` and the estimate options.
+on `CrawlOptions`, `CrawlExtractOptions` and the estimate options. With
+`CaptureMode: "visual"`, images and stylesheets are included automatically.
+
+Extras are off by default on every browser route, not only crawls:
+`FetchOptions` (`Evadr.Fetch`) and `ExtractOptions` (`Kolektr.Extract`)
+take the same `IncludeResources`; unset means none.
+
+```go
+res, err := client.Evadr.Fetch(ctx, url, &kloakd.FetchOptions{IncludeResources: []string{kloakd.ResourceImages}})
+ext, err := client.Kolektr.Extract(ctx, url, &kloakd.ExtractOptions{IncludeResources: []string{kloakd.ResourceStylesheets}})
+```
 
 The estimate also says how much data the job should use and what that is
 of your allowance:

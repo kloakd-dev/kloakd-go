@@ -42,6 +42,12 @@ type ExtractOptions struct {
 	SessionArtifactID string
 	ApiMapArtifactID  string
 	Options           map[string]interface{}
+	// IncludeResources lists the page extras the browser loads
+	// (ResourceImages, ResourceMedia, ResourceFonts, ResourceStylesheets,
+	// ResourceTracking), sent as include_resources only when set. Page
+	// extras are off by default on every browser route: unset means none
+	// (the page's document, scripts and data are always loaded).
+	IncludeResources []string
 }
 
 // PageOptions is the 0.2 name of ExtractOptions.
@@ -73,6 +79,7 @@ func (k *KolektrNamespace) Extract(ctx context.Context, targetURL string, opts *
 		if len(opts.Options) > 0 {
 			body["options"] = opts.Options
 		}
+		costControl{IncludeResources: opts.IncludeResources}.apply(body)
 	}
 
 	raw, err := k.t.postFollowing(ctx, "kolektr/extract", body, nil)
