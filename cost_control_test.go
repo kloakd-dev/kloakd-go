@@ -287,42 +287,54 @@ func TestWebgrph_MapSite_SendsTheBodyAndReadsTheTree(t *testing.T) {
 	}
 }
 
+const artID = "5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f"
+
 func TestClient_GetArtifact(t *testing.T) {
 	rs, server := newRouteServer(map[string]http.HandlerFunc{
-		"GET artifacts/a 1": jsonHandler(200, map[string]interface{}{
-			"id": "a 1", "type": "FETCHED_CONTENT", "url": "https://example.com/", "created_at": "2026-11-15T10:00:00Z",
-			"size_bytes": float64(5120), "content_type": "text/html",
+		"GET artifacts/" + artID: jsonHandler(200, map[string]interface{}{
+			"id": artID, "type": "FETCHED_CONTENT", "url": "https://example.com/", "created_at": "2026-11-15T10:00:00Z",
+			"size_bytes": float64(5120), "content_type": "text/html; charset=utf-8",
+			"final_url": "https://www.example.com/", "status_code": float64(200), "verified": true,
+			"content_url": "/api/v1/organizations/org/artifacts/" + artID + "/content",
+		}),
+		"GET artifacts/" + artID[:35] + "0": jsonHandler(200, map[string]interface{}{
+			"id": artID[:35] + "0", "type": "DEGRADED_FETCHED_CONTENT", "url": "https://example.com/",
+			"created_at": "2026-11-15T10:00:00Z", "size_bytes": float64(10), "content_type": "text/html; charset=utf-8",
+			"final_url": nil, "status_code": nil, "verified": false, "content_url": "/x/content",
 		}),
 	})
 	defer server.Close()
+	client := newTestClient(server)
 
-	a, err := newTestClient(server).GetArtifact(context.Background(), "a 1")
+	a, err := client.GetArtifact(context.Background(), artID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.ID != "a 1" || a.Type != "FETCHED_CONTENT" || *a.URL != "https://example.com/" ||
-		*a.CreatedAt != "2026-11-15T10:00:00Z" || *a.SizeBytes != 5120 || *a.ContentType != "text/html" {
+	if a.ID != artID || a.Type != ArtifactFetchedContent || *a.URL != "https://example.com/" ||
+		*a.CreatedAt != "2026-11-15T10:00:00Z" || *a.SizeBytes != 5120 || *a.ContentType != "text/html; charset=utf-8" ||
+		*a.FinalURL != "https://www.example.com/" || *a.StatusCode != 200 || !a.Verified ||
+		a.ContentURL != "/api/v1/organizations/org/artifacts/"+artID+"/content" {
 		t.Errorf("unexpected artifact: %+v", a)
 	}
-	if len(rs.seen) != 1 {
-		t.Errorf("unexpected calls: %v", rs.seen)
+	d, err := client.GetArtifact(context.Background(), artID[:35]+"0")
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	_, err = newTestClient(server).GetArtifact(context.Background(), "missing")
-	var apiErr *ApiError
-	if !errorsAs(err, &apiErr) || apiErr.StatusCode != 404 {
-		t.Errorf("expected a 404 ApiError, got %v", err)
+	if d.Type != ArtifactDegradedFetchedContent || d.FinalURL != nil || d.StatusCode != nil || d.Verified || d.ContentURL != "/x/content" {
+		t.Errorf("unexpected degraded artifact: %+v", d)
+	}
+	if len(rs.seen) != 2 {
+		t.Errorf("unexpected calls: %v", rs.seen)
 	}
 }
 
 func TestClient_DownloadAndSaveArtifact(t *testing.T) {
 	const html = "<html><body>hi</body></html>"
-	var rawPath string
+	const filename = "example.com-5f0c1d2e.html"
 	_, server := newRouteServer(map[string]http.HandlerFunc{
-		"GET artifacts/a/1/content": func(w http.ResponseWriter, r *http.Request) {
-			rawPath = r.URL.RawPath
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.Header().Set("Content-Disposition", `attachment; filename="page.html"`)
+		"GET artifacts/" + artID + "/content": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			_, _ = w.Write([]byte(html))
 		},
@@ -330,38 +342,82 @@ func TestClient_DownloadAndSaveArtifact(t *testing.T) {
 	defer server.Close()
 	client := newTestClient(server)
 
-	dl, err := client.DownloadArtifact(context.Background(), "a/1")
+	dl, err := client.DownloadArtifact(context.Background(), artID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, _ := io.ReadAll(dl.Body)
 	dl.Body.Close()
-	if string(got) != html || dl.Filename != "page.html" || dl.ContentType != "text/plain; charset=utf-8" ||
+	if string(got) != html || dl.Filename != filename || dl.ContentType != "text/html; charset=utf-8" ||
 		dl.JobStatus != "" || dl.Crawl != nil {
 		t.Errorf("unexpected download: %+v %q", dl, got)
 	}
-	if rawPath == "" {
-		t.Errorf("the id must be escaped as one path segment")
-	}
 
 	target := filepath.Join(t.TempDir(), "page.html")
-	saved, err := client.SaveArtifact(context.Background(), "a/1", target)
+	saved, err := client.SaveArtifact(context.Background(), artID, target)
 	if err != nil {
 		t.Fatal(err)
 	}
 	file, _ := os.ReadFile(target)
-	if string(file) != html || saved.Bytes != int64(len(html)) || saved.Filename != "page.html" {
+	if string(file) != html || saved.Bytes != int64(len(html)) || saved.Filename != filename {
 		t.Errorf("unexpected save: %+v %q", saved, file)
 	}
 }
 
-func TestClient_DownloadArtifact_UnknownIsA404(t *testing.T) {
-	_, server := newRouteServer(map[string]http.HandlerFunc{})
+func TestClient_Artifact_IdIsOnePathSegment(t *testing.T) {
+	var rawPath string
+	_, server := newRouteServer(map[string]http.HandlerFunc{
+		"GET artifacts/a/1/content": func(w http.ResponseWriter, r *http.Request) {
+			rawPath = r.URL.RawPath
+			_, _ = w.Write([]byte("x"))
+		},
+	})
 	defer server.Close()
-	_, err := newTestClient(server).DownloadArtifact(context.Background(), "session-artifact")
+	dl, err := newTestClient(server).DownloadArtifact(context.Background(), "a/1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dl.Body.Close()
+	if rawPath != "/api/v1/organizations/"+testOrgID+"/artifacts/a%2F1/content" {
+		t.Errorf("the id must be escaped as one path segment: %q", rawPath)
+	}
+}
+
+func TestClient_Artifact_Errors(t *testing.T) {
+	notFound := jsonHandler(404, map[string]interface{}{"detail": "Artifact not found"})
+	_, server := newRouteServer(map[string]http.HandlerFunc{
+		"GET artifacts/" + artID:              notFound,
+		"GET artifacts/" + artID + "/content": notFound,
+		"GET artifacts/not-a-uuid": jsonHandler(422, map[string]interface{}{"detail": []interface{}{
+			map[string]interface{}{"loc": []interface{}{"path", "artifact_id"}, "msg": "Input should be a valid UUID",
+				"type": "uuid_parsing"}}}),
+		"GET artifacts/not-a-uuid/content": jsonHandler(422, map[string]interface{}{"detail": []interface{}{
+			map[string]interface{}{"loc": []interface{}{"path", "artifact_id"}, "msg": "Input should be a valid UUID",
+				"type": "uuid_parsing"}}}),
+		"GET artifacts/other-org": jsonHandler(403, map[string]interface{}{"detail": "Access denied"}),
+	})
+	defer server.Close()
+	client := newTestClient(server)
+
 	var apiErr *ApiError
-	if !errorsAs(err, &apiErr) || apiErr.StatusCode != 404 {
-		t.Errorf("expected a 404 ApiError, got %v", err)
+	if _, err := client.GetArtifact(context.Background(), artID); !errorsAs(err, &apiErr) || apiErr.StatusCode != 404 ||
+		apiErr.Message != "Artifact not found" {
+		t.Errorf("expected a 404 Artifact not found, got %v", err)
+	}
+	if _, err := client.DownloadArtifact(context.Background(), artID); !errorsAs(err, &apiErr) || apiErr.StatusCode != 404 {
+		t.Errorf("expected a 404, got %v", err)
+	}
+	for _, call := range []func() error{
+		func() error { _, err := client.GetArtifact(context.Background(), "not-a-uuid"); return err },
+		func() error { _, err := client.DownloadArtifact(context.Background(), "not-a-uuid"); return err },
+	} {
+		if err := call(); !errorsAs(err, &apiErr) || apiErr.StatusCode != 422 {
+			t.Errorf("expected a 422 ApiError, got %v", err)
+		}
+	}
+	var forbidden *ForbiddenError
+	if _, err := client.GetArtifact(context.Background(), "other-org"); !errorsAs(err, &forbidden) || forbidden.StatusCode != 403 {
+		t.Errorf("expected a 403 ForbiddenError, got %v", err)
 	}
 }
 

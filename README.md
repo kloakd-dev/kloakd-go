@@ -464,15 +464,21 @@ job's results in the same formats. The batch export sends neither
 A fetch's stored page can be read back by its artifact id:
 
 ```go
-a, err := client.GetArtifact(ctx, artifactID) // ID, Type, URL, CreatedAt, SizeBytes, ContentType
+a, err := client.GetArtifact(ctx, artifactID)
+// a.Type: kloakd.ArtifactFetchedContent or kloakd.ArtifactDegradedFetchedContent
+// a.URL, a.FinalURL, a.StatusCode, a.Verified, a.SizeBytes, a.ContentType, a.CreatedAt, a.ContentURL
 dl, err := client.DownloadArtifact(ctx, artifactID) // the stored HTML, streamed
-defer dl.Body.Close()
+defer dl.Body.Close()                               // dl.Filename: "<host>-<id8>.html"
 saved, err := client.SaveArtifact(ctx, artifactID, "page.html")
 ```
 
-Only your organisation's fetched-content artifacts are served; any other id
-(session and cookie artifacts included) is a 404. The content is the site's
-own HTML: do not render it with scripts enabled.
+`FinalURL` and `StatusCode` are nil when the fetch did not record them. The
+content is the raw HTML (`text/html; charset=utf-8`), sent as an attachment.
+Only your organisation's fetched-content artifacts are served: an unknown
+id, another organisation's, a session or cookie artifact, or one with no
+HTML is a 404 `ApiError` ("Artifact not found"); the wrong organisation is a
+403 `ForbiddenError`; an id that is not a UUID is a 422 `ApiError`. The
+content is the site's own HTML: do not render it with scripts enabled.
 
 ### Batch jobs
 

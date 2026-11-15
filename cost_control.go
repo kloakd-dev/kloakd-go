@@ -162,9 +162,18 @@ func parseSiteMapBranches(m map[string]interface{}, key string) []SiteMapBranch 
 	return branches
 }
 
+// Artifact types the artifact routes serve (Artifact.Type). A degraded
+// fetch is a page stored from a fetch that did not fully succeed.
+const (
+	ArtifactFetchedContent         = "FETCHED_CONTENT"
+	ArtifactDegradedFetchedContent = "DEGRADED_FETCHED_CONTENT"
+)
+
 // Artifact is a stored fetch's metadata (GET artifacts/{artifact_id}).
-// Only the organisation's fetched-content artifacts are served; any other
-// id (session and cookie artifacts included) is a 404 *ApiError.
+// Type is ArtifactFetchedContent or ArtifactDegradedFetchedContent.
+// FinalURL is the URL after redirects and StatusCode the site's HTTP
+// status (nil when not recorded); Verified says the fetch was verified.
+// ContentURL is the path of the page's HTML (DownloadArtifact).
 type Artifact struct {
 	ID          string  `json:"id"`
 	Type        string  `json:"type"`
@@ -172,11 +181,20 @@ type Artifact struct {
 	CreatedAt   *string `json:"created_at"`
 	SizeBytes   *int    `json:"size_bytes"`
 	ContentType *string `json:"content_type"`
+	FinalURL    *string `json:"final_url"`
+	StatusCode  *int    `json:"status_code"`
+	Verified    bool    `json:"verified"`
+	ContentURL  string  `json:"content_url"`
 	// Raw is the answer as received.
 	Raw map[string]interface{} `json:"-"`
 }
 
 // GetArtifact gets a fetched page's artifact metadata.
+//
+// Only the organisation's fetched-content artifacts are served. An unknown
+// id, another organisation's, a session or cookie artifact, or one with no
+// HTML is a 404 *ApiError ("Artifact not found"); the wrong organisation
+// is a 403 *ForbiddenError; an id that is not a UUID is a 422 *ApiError.
 func (c *Client) GetArtifact(ctx context.Context, artifactID string) (*Artifact, error) {
 	raw, err := c.t.get(ctx, pathf("artifacts/%s", artifactID), nil)
 	if err != nil {
@@ -189,15 +207,21 @@ func (c *Client) GetArtifact(ctx context.Context, artifactID string) (*Artifact,
 		CreatedAt:   optStrField(raw, "created_at"),
 		SizeBytes:   optIntField(raw, "size_bytes"),
 		ContentType: optStrField(raw, "content_type"),
+		FinalURL:    optStrField(raw, "final_url"),
+		StatusCode:  optIntField(raw, "status_code"),
+		Verified:    boolField(raw, "verified"),
+		ContentURL:  strField(raw, "content_url"),
 		Raw:         raw,
 	}, nil
 }
 
 // DownloadArtifact opens a fetched page's stored HTML
-// (GET artifacts/{artifact_id}/content) as a stream; the caller must Close
-// Body. The API sends it as an attachment (ContentType text/plain or
-// text/html, Filename from Content-Disposition). JobStatus is "" and Crawl
-// nil. Do not render it with scripts enabled: it is the site's HTML.
+// (GET artifacts/{artifact_id}/content) as a stream of the raw bytes; the
+// caller must Close Body. The API sends it as an attachment: ContentType
+// "text/html; charset=utf-8" and Filename "<host>-<first 8 of the id>.html"
+// from Content-Disposition. JobStatus is "" and Crawl nil. The errors are
+// those of GetArtifact (404, 403, 422). Do not render the page with
+// scripts enabled: it is the site's HTML.
 func (c *Client) DownloadArtifact(ctx context.Context, artifactID string) (*ExportDownload, error) {
 	return c.t.download(ctx, pathf("artifacts/%s/content", artifactID), nil)
 }

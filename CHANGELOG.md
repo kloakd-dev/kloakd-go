@@ -43,7 +43,9 @@ which the API builds on feature/2026-11-15-cost-control.
   `IncludeResources`. `PartialReasonDataLimit` (`"data_limit"`).
 - `Webgrph.MapSite` (`POST webgrph/map`), returning a `SiteMap` with a
   `SiteMapBranch` tree; `MapSiteOptions.MaxURLs`.
-- `Client.GetArtifact` (`GET artifacts/{artifact_id}`, `Artifact`),
+- `Client.GetArtifact` (`GET artifacts/{artifact_id}`, `Artifact` with
+  `FinalURL`, `StatusCode`, `Verified` and `ContentURL`; constants
+  `ArtifactFetchedContent`, `ArtifactDegradedFetchedContent`),
   `Client.DownloadArtifact` (`GET artifacts/{artifact_id}/content`, a
   streamed `*ExportDownload`) and `Client.SaveArtifact`.
 - `CostAcknowledgementRequiredError` for 409
