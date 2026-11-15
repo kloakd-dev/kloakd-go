@@ -58,6 +58,28 @@ which the API builds on feature/2026-11-15-cost-control.
 - `testdata/routes.tsv`: the three new routes, added by hand from the
   contract (286 rows).
 
+Checked against kobe-scraper feature/2026-11-15-cost-control @ 964ba78c:
+
+### Added
+- `CrawlEstimate.IncludeResourcesLocked` (`include_resources_locked`): the
+  extras the user cannot turn off (capture mode "visual" locks images and
+  stylesheets); `IncludeResources` is the effective set. nil from an older
+  API.
+- `CrawlEstimateOptions.CaptureMode` and
+  `CrawlExtractEstimateOptions.CaptureMode`, sent as `capture_mode` when set.
+- `FetchAsyncOptions.IncludeResources` (`POST evadr/fetch/async`),
+  `FetchStreamOptions.IncludeResources` (through `FetchAsync`) and
+  `ExtractHTMLOptions.IncludeResources` (`POST kolektr/extract/html`), sent
+  only when set.
+- `CrawlExtractContinueResult`: `MaxPages`, `MaxDepth` (from `limits`),
+  `Links`, `TimeBudgetS`, `ElapsedS`, `MaxDataMB`.
+
+### Changed
+- `ContinueCrawlExtract` docs: the API answers 202; the 501 note is gone.
+  Its errors are 409 `continue_needs_more_pages`,
+  `continue_needs_more_data`, `not_continuable`, `already_continuing` and
+  422 `continue_cannot_lower` (`ApiError.Code`).
+
 ## [0.7.0] — 2026-11-12
 
 For the API at kobe-scraper 6bd19e9b; the batch and unified scrape

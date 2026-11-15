@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // Tests for cost control (COST-CONTROL-CONTRACT.md, 15 Nov 2026): the new
@@ -499,6 +500,165 @@ func TestEvadrFetchAndKolektrExtract_IncludeResources(t *testing.T) {
 	}
 	if got := rs.bodies["POST kolektr/extract"]["include_resources"]; !reflect.DeepEqual(got, []interface{}{"stylesheets"}) {
 		t.Errorf("unexpected extract include_resources: %v", got)
+	}
+}
+
+func TestEstimate_LockedResourcesAndCaptureMode(t *testing.T) {
+	b := costEstimateBody()
+	b["include_resources"] = []interface{}{"images", "stylesheets"}
+	b["include_resources_locked"] = []interface{}{"images", "stylesheets"}
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST webgrph/crawl/estimate":         jsonHandler(200, b),
+		"POST webgrph/crawl-extract/estimate": jsonHandler(200, costEstimateBody()),
+	})
+	defer server.Close()
+	w := newTestClient(server).Webgrph
+
+	est, err := w.EstimateCrawl(context.Background(), "https://example.com/", &CrawlEstimateOptions{CaptureMode: "visual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.bodies["POST webgrph/crawl/estimate"]; !reflect.DeepEqual(got, map[string]interface{}{"url": "https://example.com/", "capture_mode": "visual"}) {
+		t.Errorf("unexpected body: %v", got)
+	}
+	if !reflect.DeepEqual(est.IncludeResourcesLocked, []string{"images", "stylesheets"}) ||
+		!reflect.DeepEqual(est.IncludeResources, []string{"images", "stylesheets"}) {
+		t.Errorf("unexpected resources: %v %v", est.IncludeResources, est.IncludeResourcesLocked)
+	}
+
+	// An older API sends no include_resources_locked: nil.
+	est, err = w.EstimateCrawlExtract(context.Background(), "https://example.com/",
+		&CrawlExtractEstimateOptions{CaptureMode: "content", IncludeResources: []string{ResourceMedia}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := rs.bodies["POST webgrph/crawl-extract/estimate"]
+	if body["capture_mode"] != "content" || !reflect.DeepEqual(body["include_resources"], []interface{}{"media"}) {
+		t.Errorf("unexpected body: %v", body)
+	}
+	if est.IncludeResourcesLocked != nil {
+		t.Errorf("absent locked must be nil: %v", est.IncludeResourcesLocked)
+	}
+	// No CaptureMode: not sent.
+	if _, err := w.EstimateCrawlExtract(context.Background(), "https://example.com/", &CrawlExtractEstimateOptions{MaxPages: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rs.bodies["POST webgrph/crawl-extract/estimate"]["capture_mode"]; ok {
+		t.Errorf("capture_mode sent without being set")
+	}
+}
+
+func TestFetchAsyncStreamAndExtractHTML_IncludeResources(t *testing.T) {
+	rs, server := newRouteServer(map[string]http.HandlerFunc{
+		"POST evadr/fetch/async":      jsonHandler(202, map[string]interface{}{"job_id": "job-9", "status": "pending"}),
+		"GET evadr/jobs/job-9/events": sseHandler([]map[string]interface{}{{"type": "COMPLETE", "job_id": "job-9"}}),
+		"POST kolektr/extract/html":   jsonHandler(200, map[string]interface{}{"success": true, "records": []interface{}{}}),
+	})
+	defer server.Close()
+	c := newTestClient(server)
+	ctx := context.Background()
+
+	// Unset: the bodies are exactly what they were before.
+	if _, err := c.Evadr.FetchAsync(ctx, "https://example.com/", &FetchAsyncOptions{WebhookURL: "https://hook.example/"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.bodies["POST evadr/fetch/async"]; !reflect.DeepEqual(got, map[string]interface{}{"url": "https://example.com/", "webhook_url": "https://hook.example/"}) {
+		t.Errorf("unexpected async body: %v", got)
+	}
+	if _, err := c.Kolektr.ExtractHTML(ctx, "<html></html>", "https://example.com/", &ExtractHTMLOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.bodies["POST kolektr/extract/html"]; !reflect.DeepEqual(got, map[string]interface{}{"html": "<html></html>", "url": "https://example.com/"}) {
+		t.Errorf("unexpected extract/html body: %v", got)
+	}
+	ch, err := c.Evadr.FetchStream(ctx, "https://example.com/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drain(ch, 2*time.Second)
+	if got := rs.bodies["POST evadr/fetch/async"]; len(got) != 1 {
+		t.Errorf("unexpected stream body: %v", got)
+	}
+
+	// Set: sent as include_resources.
+	if _, err := c.Evadr.FetchAsync(ctx, "https://example.com/", &FetchAsyncOptions{IncludeResources: []string{ResourceImages}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.bodies["POST evadr/fetch/async"]["include_resources"]; !reflect.DeepEqual(got, []interface{}{"images"}) {
+		t.Errorf("unexpected async include_resources: %v", got)
+	}
+	ch, err = c.Evadr.FetchStream(ctx, "https://example.com/", &FetchStreamOptions{IncludeResources: []string{ResourceTracking}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drain(ch, 2*time.Second)
+	if got := rs.bodies["POST evadr/fetch/async"]["include_resources"]; !reflect.DeepEqual(got, []interface{}{"tracking"}) {
+		t.Errorf("unexpected stream include_resources: %v", got)
+	}
+	if _, err := c.Kolektr.ExtractHTML(ctx, "<html></html>", "https://example.com/", &ExtractHTMLOptions{IncludeResources: []string{ResourceFonts}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.bodies["POST kolektr/extract/html"]["include_resources"]; !reflect.DeepEqual(got, []interface{}{"fonts"}) {
+		t.Errorf("unexpected extract/html include_resources: %v", got)
+	}
+}
+
+func TestWebgrph_ContinueCrawlExtract_The202AndItsErrors(t *testing.T) {
+	detail := func(code string) http.HandlerFunc {
+		status := 409
+		if code == "continue_cannot_lower" {
+			status = 422
+		}
+		return jsonHandler(status, map[string]interface{}{"detail": map[string]interface{}{"error": code, "message": code}})
+	}
+	routes := map[string]http.HandlerFunc{
+		"POST webgrph/crawl-extract/j1/continue": jsonHandler(202, map[string]interface{}{
+			"success": true, "job_id": "j1", "crawl_id": "c1", "status": "queued",
+			"limits":        map[string]interface{}{"max_pages": float64(500), "max_depth": float64(3)},
+			"links":         map[string]interface{}{"status": "/s", "results": "/s/results"},
+			"time_budget_s": float64(900), "elapsed_s": 120.5, "max_data_mb": 80.0,
+		}),
+		"POST webgrph/crawl-extract/j2/continue": jsonHandler(202, map[string]interface{}{
+			"success": true, "job_id": "j2", "crawl_id": "c2", "status": "queued",
+			"limits": map[string]interface{}{"max_pages": float64(50), "max_depth": float64(2)}, "links": map[string]interface{}{},
+		}),
+	}
+	codes := []string{"continue_needs_more_pages", "continue_needs_more_data", "not_continuable", "already_continuing", "continue_cannot_lower"}
+	for _, code := range codes {
+		routes["POST webgrph/crawl-extract/"+code+"/continue"] = detail(code)
+	}
+	_, server := newRouteServer(routes)
+	defer server.Close()
+	w := newTestClient(server).Webgrph
+	ctx := context.Background()
+
+	res, err := w.ContinueCrawlExtract(ctx, "j1", &ContinueOptions{MaxPages: 500, MaxDataMB: 80})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success || res.JobID != "j1" || res.CrawlID != "c1" || res.Status != "queued" || res.MaxPages != 500 ||
+		res.MaxDepth != 3 || res.Links.Status != "/s" || res.Links.Results != "/s/results" ||
+		res.TimeBudgetS == nil || *res.TimeBudgetS != 900 || res.ElapsedS == nil || *res.ElapsedS != 120.5 ||
+		res.MaxDataMB == nil || *res.MaxDataMB != 80 {
+		t.Errorf("unexpected result: %+v", res)
+	}
+	res, err = w.ContinueCrawlExtract(ctx, "j2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.MaxPages != 50 || res.MaxDepth != 2 || res.TimeBudgetS != nil || res.ElapsedS != nil || res.MaxDataMB != nil {
+		t.Errorf("absent optional fields must be nil: %+v", res)
+	}
+	for _, code := range codes {
+		_, err := w.ContinueCrawlExtract(ctx, code, &ContinueOptions{MaxPages: 1})
+		var apiErr *ApiError
+		want := 409
+		if code == "continue_cannot_lower" {
+			want = 422
+		}
+		if !errorsAs(err, &apiErr) || apiErr.StatusCode != want || apiErr.Code != code {
+			t.Errorf("%s: expected a %d ApiError with its code, got %v", code, want, err)
+		}
 	}
 }
 

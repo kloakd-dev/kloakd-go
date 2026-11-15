@@ -71,6 +71,12 @@ type FetchAsyncOptions struct {
 	UseProxy          bool
 	SessionArtifactID string
 	WebhookURL        string
+	// IncludeResources lists the page extras the browser loads
+	// (ResourceImages, ResourceMedia, ResourceFonts, ResourceStylesheets,
+	// ResourceTracking), sent as include_resources only when set. Page
+	// extras are off by default on every browser route: unset means none
+	// (the page's document, scripts and data are always loaded).
+	IncludeResources []string
 }
 
 // FetchAsync enqueues an anti-bot fetch job and returns the job ID.
@@ -89,6 +95,7 @@ func (e *EvadrNamespace) FetchAsync(ctx context.Context, targetURL string, opts 
 		if opts.WebhookURL != "" {
 			body["webhook_url"] = opts.WebhookURL
 		}
+		costControl{IncludeResources: opts.IncludeResources}.apply(body)
 	}
 
 	raw, err := e.t.post(ctx, "evadr/fetch/async", body)
@@ -104,6 +111,8 @@ type FetchStreamOptions struct {
 	ForceBrowser      bool
 	UseProxy          bool
 	SessionArtifactID string
+	// IncludeResources as in FetchAsyncOptions (passed to FetchAsync).
+	IncludeResources []string
 }
 
 // FetchStream starts an asynchronous fetch and streams its progress events
@@ -115,6 +124,7 @@ func (e *EvadrNamespace) FetchStream(ctx context.Context, targetURL string, opts
 		asyncOpts.ForceBrowser = opts.ForceBrowser
 		asyncOpts.UseProxy = opts.UseProxy
 		asyncOpts.SessionArtifactID = opts.SessionArtifactID
+		asyncOpts.IncludeResources = opts.IncludeResources
 	}
 	jobID, err := e.FetchAsync(ctx, targetURL, asyncOpts)
 	if err != nil {

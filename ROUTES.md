@@ -2,15 +2,15 @@
 
 ## Unreleased: cost control
 
-From COST-CONTROL-CONTRACT.md (15 Nov 2026); the API builds these on feature/2026-11-15-cost-control, so they are not yet checked against a kobe-scraper commit. The three new routes were added to `testdata/routes.tsv` by hand (286 rows); `TestContract_CostControlRoutesAreCalled` checks them. Re-check against the API's branch before release.
+From COST-CONTROL-CONTRACT.md (15 Nov 2026), built on kobe-scraper feature/2026-11-15-cost-control. The estimate, fetch/extract `include_resources` and crawl-extract continue rows were checked against its routers at 964ba78c by the coordinating agent; the route list itself was not regenerated. The three new routes were added to `testdata/routes.tsv` by hand (286 rows); `TestContract_CostControlRoutesAreCalled` checks them. Re-check against the API's branch before release.
 
 | Call | Change |
 |---|---|
 | `POST webgrph/crawl`, `POST webgrph/crawl-extract` | body adds `include_resources?`, `max_data_mb?`, `estimate_id?`, `cost_acknowledged?` (only when true), `urls?`, `include_paths?`; 409 `cost_acknowledgement_required` (`CostAcknowledgementRequiredError`) |
 | `POST webgrph/crawl/{crawl_id}/continue`, `POST webgrph/crawl-extract/{job_id}/continue` | body adds `max_data_mb?` (`ContinueOptions.MaxDataMB`) |
-| `POST webgrph/crawl/estimate`, `POST webgrph/crawl-extract/estimate` | body adds `include_resources?`; reads `include_resources`, `data`, `share_of_remaining`, `consent_required`, `risks`, `suggested_max_data_mb`, `estimate_id` |
+| `POST webgrph/crawl/estimate`, `POST webgrph/crawl-extract/estimate` | body adds `include_resources?`, `capture_mode?`; reads `include_resources`, `include_resources_locked`, `data`, `share_of_remaining`, `consent_required`, `risks`, `suggested_max_data_mb`, `estimate_id` |
 | `GET webgrph/crawl/{crawl_id}`, `GET webgrph/crawl-extract/{job_id}` | read `data_used_mb`, `max_data_mb`, `include_resources`; `partial_reason` may be `data_limit` |
-| `POST evadr/fetch`, `POST kolektr/extract` | body adds `include_resources?` (`FetchOptions`, `ExtractOptions`); extras are off by default on every browser route |
+| `POST evadr/fetch`, `POST evadr/fetch/async`, `POST kolektr/extract`, `POST kolektr/extract/html` | body adds `include_resources?` (`FetchOptions`, `FetchAsyncOptions`, `FetchStreamOptions`, `ExtractOptions`, `ExtractHTMLOptions`); extras are off by default on every browser route |
 | `POST webgrph/map` | new: `MapSite`; body `{url, max_urls?}`; answers `SiteMap` |
 | `GET artifacts/{artifact_id}` | new: `GetArtifact`; answers `Artifact` `{id, type (FETCHED_CONTENT, DEGRADED_FETCHED_CONTENT), url, created_at, size_bytes, content_type, final_url, status_code, verified, content_url}`; 404 `Artifact not found`, 403 wrong org, 422 non-UUID id |
 | `GET artifacts/{artifact_id}/content` | new: `DownloadArtifact`, `SaveArtifact`; the raw HTML, `text/html; charset=utf-8`, attachment `<host>-<id8>.html`; same errors |
@@ -26,7 +26,7 @@ From CRAWL-ESTIMATE-CONTRACT.md (14 Nov 2026); the API builds these on feature/2
 | `POST webgrph/crawl/estimate` | new: `EstimateCrawl`; body `{url, max_depth?, max_pages?}`; answers 200 `CrawlEstimate` |
 | `POST webgrph/crawl-extract/estimate` | new: `EstimateCrawlExtract`; body `{url, max_depth?, max_pages?, extract?}` |
 | `POST webgrph/crawl/{crawl_id}/continue` | optional body `{max_pages?, max_depth?}` (`ContinueOptions`); no body without options; 422 `continue_cannot_lower` |
-| `POST webgrph/crawl-extract/{job_id}/continue` | new: `ContinueCrawlExtract`; same body |
+| `POST webgrph/crawl-extract/{job_id}/continue` | new: `ContinueCrawlExtract`; same body; answers 202 `{success, job_id, crawl_id, status, limits, links, time_budget_s?, elapsed_s?, max_data_mb?}`; 409 `continue_needs_more_pages`, `continue_needs_more_data`, `not_continuable`, `already_continuing`; 422 `continue_cannot_lower` |
 | `GET webgrph/crawl/{crawl_id}`, `GET webgrph/crawl-extract/{job_id}` | read `time_budget_s`, `elapsed_s`, `est_remaining_s` |
 
 ## 0.7.0: batch jobs and the unified scrape

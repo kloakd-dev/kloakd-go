@@ -238,11 +238,16 @@ are **not loaded by default**; its document, scripts and data always are.
 Ask for an extra per job with `IncludeResources` (`kloakd.ResourceImages`,
 `ResourceMedia`, `ResourceFonts`, `ResourceStylesheets`, `ResourceTracking`)
 on `CrawlOptions`, `CrawlExtractOptions` and the estimate options. With
-`CaptureMode: "visual"`, images and stylesheets are included automatically.
+`CaptureMode: "visual"`, images and stylesheets are included automatically:
+give the estimate the job's `CaptureMode` and it lists them in
+`IncludeResourcesLocked` (extras the user cannot turn off), while its
+`IncludeResources` is the effective set.
 
 Extras are off by default on every browser route, not only crawls:
-`FetchOptions` (`Evadr.Fetch`) and `ExtractOptions` (`Kolektr.Extract`)
-take the same `IncludeResources`; unset means none.
+`FetchOptions` (`Evadr.Fetch`), `FetchAsyncOptions` (`Evadr.FetchAsync`),
+`FetchStreamOptions` (`Evadr.FetchStream`), `ExtractOptions`
+(`Kolektr.Extract`) and `ExtractHTMLOptions` (`Kolektr.ExtractHTML`) take
+the same `IncludeResources`; unset means none.
 
 ```go
 res, err := client.Evadr.Fetch(ctx, url, &kloakd.FetchOptions{IncludeResources: []string{kloakd.ResourceImages}})
@@ -385,9 +390,18 @@ can be continued this way with a larger `MaxPages`. Estimate first with
 _, err = client.Webgrph.ContinueCrawl(ctx, crawl.CrawlID, &kloakd.ContinueOptions{MaxPages: 500})
 
 // A crawl-extract job: continues the crawl, then extracts the new pages
-_, err = client.Webgrph.ContinueCrawlExtract(ctx, job.JobID, &kloakd.ContinueOptions{MaxPages: 500})
+cont, err := client.Webgrph.ContinueCrawlExtract(ctx, job.JobID, &kloakd.ContinueOptions{MaxPages: 500})
+// cont.MaxPages, cont.MaxDepth (the new limits), cont.Links, and
+// cont.TimeBudgetS, cont.ElapsedS, cont.MaxDataMB when the API sends them
 done, err = client.Webgrph.WaitForCrawlExtract(ctx, job.JobID, nil)
 ```
+
+The API answers a crawl-extract continue with 202. A job that cannot be
+continued is an `*kloakd.ApiError` whose `Code` says why: 409
+`continue_needs_more_pages` (it stopped at `max_pages`: give a larger
+`MaxPages`), `continue_needs_more_data` (it stopped at its data limit: give
+a larger `MaxDataMB`), `not_continuable` or `already_continuing`, and 422
+`continue_cannot_lower` for a lowered value.
 
 ### Crawl, extract and download in one job
 
