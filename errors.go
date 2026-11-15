@@ -100,6 +100,20 @@ func (e *ConcurrencyLimitError) Error() string {
 	return fmt.Sprintf("ConcurrencyLimitError(%d): %s (limit=%d)", e.StatusCode, e.Message, e.ConcurrentLimit)
 }
 
+// CostAcknowledgementRequiredError is returned for HTTP 409
+// "cost_acknowledgement_required": the job's estimate requires the user's
+// consent and the request has no valid EstimateID with CostAcknowledged
+// true. The API refuses this for dashboard sessions only, not for API
+// keys. Estimate again (Webgrph.EstimateCrawl or EstimateCrawlExtract),
+// show the estimate, and start with its EstimateID and CostAcknowledged.
+type CostAcknowledgementRequiredError struct {
+	KloakdError
+}
+
+func (e *CostAcknowledgementRequiredError) Error() string {
+	return fmt.Sprintf("CostAcknowledgementRequiredError(%d): %s", e.StatusCode, e.Message)
+}
+
 // RateLimitError is returned for HTTP 429 "rate_limited". For the tier's
 // request rate, RetryAfter (seconds) and ResetAt say when to retry; the SDK
 // retries it itself up to Config.MaxRetries. QuotaExhausted is true for the
@@ -271,6 +285,11 @@ func raiseForStatus(statusCode int, body map[string]interface{}, headers http.He
 	}
 	detail := detailMap(body)
 	code, _ := detail["error"].(string)
+	if top, _ := body["error"].(string); code == "" && top == "cost_acknowledgement_required" {
+		// COST-CONTROL-CONTRACT.md writes this refusal as a top-level
+		// {"error": ...}; the detail form is read as for every other code.
+		code = top
+	}
 	base := KloakdError{StatusCode: statusCode, Message: errorMessage(statusCode, body, raw), Code: code}
 	str := func(key string) string {
 		for _, m := range []map[string]interface{}{detail, body} {
@@ -329,6 +348,8 @@ func raiseForStatus(statusCode int, body map[string]interface{}, headers http.He
 			ActiveRequests:  int(num("active_requests")),
 			TestKeyID:       str("test_key_id"),
 		}
+	case statusCode == 409 && code == "cost_acknowledgement_required":
+		return &CostAcknowledgementRequiredError{KloakdError: base}
 	case statusCode == 429 && code == "gb_exhausted":
 		return &QuotaExceededError{
 			KloakdError:        base,

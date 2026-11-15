@@ -24,6 +24,62 @@ which the API builds on feature/2026-11-14-crawl-estimate.
 - `testdata/routes.tsv`: the three new routes, added by hand from the
   contract (283 rows).
 
+For the cost-control contract of 15 Nov 2026 (COST-CONTROL-CONTRACT.md),
+which the API builds on feature/2026-11-15-cost-control.
+
+### Added
+- `CrawlOptions` and `CrawlExtractOptions`: `IncludeResources`,
+  `MaxDataMB`, `EstimateID`, `CostAcknowledged`, `URLs`, `IncludePaths`
+  (sent only when set; existing calls send the same body as before).
+  Constants `ResourceImages`, `ResourceMedia`, `ResourceFonts`,
+  `ResourceStylesheets`, `ResourceTracking`.
+- `FetchOptions.IncludeResources` (`Evadr.Fetch`, `POST evadr/fetch`) and
+  `ExtractOptions.IncludeResources` (`Kolektr.Extract`,
+  `POST kolektr/extract`), sent only when set: page extras are off by
+  default on every browser route. With `CaptureMode` "visual", a crawl
+  includes images and stylesheets automatically.
+- `ContinueOptions.MaxDataMB`: raise a job's data limit when continuing it.
+- `CrawlEstimateOptions` and `CrawlExtractEstimateOptions`:
+  `IncludeResources`. `CrawlEstimate`: `IncludeResources`, `Data`
+  (`CrawlEstimateData` with `DataRange`s and per-category maps),
+  `ShareOfRemaining`, `ConsentRequired`, `Risks`, `SuggestedMaxDataMB`,
+  `EstimateID`.
+- `CrawlResult` and `CrawlExtractStatus`: `DataUsedMB`, `MaxDataMB`,
+  `IncludeResources`. `PartialReasonDataLimit` (`"data_limit"`).
+- `Webgrph.MapSite` (`POST webgrph/map`), returning a `SiteMap` with a
+  `SiteMapBranch` tree; `MapSiteOptions.MaxURLs`.
+- `Client.GetArtifact` (`GET artifacts/{artifact_id}`, `Artifact` with
+  `FinalURL`, `StatusCode`, `Verified` and `ContentURL`; constants
+  `ArtifactFetchedContent`, `ArtifactDegradedFetchedContent`),
+  `Client.DownloadArtifact` (`GET artifacts/{artifact_id}/content`, a
+  streamed `*ExportDownload`) and `Client.SaveArtifact`.
+- `CostAcknowledgementRequiredError` for 409
+  `cost_acknowledgement_required` (in `detail` or at the top level).
+- `testdata/routes.tsv`: the three new routes, added by hand from the
+  contract (286 rows).
+
+Checked against kobe-scraper feature/2026-11-15-cost-control @ 964ba78c:
+
+### Added
+- `CrawlEstimate.IncludeResourcesLocked` (`include_resources_locked`): the
+  extras the user cannot turn off (capture mode "visual" locks images and
+  stylesheets); `IncludeResources` is the effective set. nil from an older
+  API.
+- `CrawlEstimateOptions.CaptureMode` and
+  `CrawlExtractEstimateOptions.CaptureMode`, sent as `capture_mode` when set.
+- `FetchAsyncOptions.IncludeResources` (`POST evadr/fetch/async`),
+  `FetchStreamOptions.IncludeResources` (through `FetchAsync`) and
+  `ExtractHTMLOptions.IncludeResources` (`POST kolektr/extract/html`), sent
+  only when set.
+- `CrawlExtractContinueResult`: `MaxPages`, `MaxDepth` (from `limits`),
+  `Links`, `TimeBudgetS`, `ElapsedS`, `MaxDataMB`.
+
+### Changed
+- `ContinueCrawlExtract` docs: the API answers 202; the 501 note is gone.
+  Its errors are 409 `continue_needs_more_pages`,
+  `continue_needs_more_data`, `not_continuable`, `already_continuing` and
+  422 `continue_cannot_lower` (`ApiError.Code`).
+
 ## [0.7.0] — 2026-11-12
 
 For the API at kobe-scraper 6bd19e9b; the batch and unified scrape

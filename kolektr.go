@@ -42,6 +42,12 @@ type ExtractOptions struct {
 	SessionArtifactID string
 	ApiMapArtifactID  string
 	Options           map[string]interface{}
+	// IncludeResources lists the page extras the browser loads
+	// (ResourceImages, ResourceMedia, ResourceFonts, ResourceStylesheets,
+	// ResourceTracking), sent as include_resources only when set. Page
+	// extras are off by default on every browser route: unset means none
+	// (the page's document, scripts and data are always loaded).
+	IncludeResources []string
 }
 
 // PageOptions is the 0.2 name of ExtractOptions.
@@ -73,6 +79,7 @@ func (k *KolektrNamespace) Extract(ctx context.Context, targetURL string, opts *
 		if len(opts.Options) > 0 {
 			body["options"] = opts.Options
 		}
+		costControl{IncludeResources: opts.IncludeResources}.apply(body)
 	}
 
 	raw, err := k.t.postFollowing(ctx, "kolektr/extract", body, nil)
@@ -95,6 +102,9 @@ type ExtractHTMLOptions struct {
 	SchemaSpec   map[string]interface{}
 	Fields       []SchemaField
 	ItemSelector string
+	// IncludeResources as in ExtractOptions: sent as include_resources
+	// only when set; page extras are off by default, unset means none.
+	IncludeResources []string
 }
 
 // ExtractHTML extracts structured data from raw HTML without making a network request.
@@ -107,6 +117,7 @@ func (k *KolektrNamespace) ExtractHTML(ctx context.Context, html, targetURL stri
 		if spec := buildItemSchemaSpec(opts.SchemaSpec, opts.Fields, opts.ItemSelector); spec != nil {
 			body["schema_spec"] = spec
 		}
+		costControl{IncludeResources: opts.IncludeResources}.apply(body)
 	}
 
 	raw, err := k.t.post(ctx, "kolektr/extract/html", body)

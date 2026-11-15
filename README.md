@@ -231,6 +231,93 @@ While a crawl runs, its status has `TimeBudgetS`, `ElapsedS` and
 `EstRemainingS` (`CrawlResult` and `CrawlExtractStatus`); they are nil until
 the crawl reports them.
 
+#### Page extras, data limits and consent
+
+A page's extras (images, video and audio, fonts, stylesheets and tracking)
+are **not loaded by default**; its document, scripts and data always are.
+Ask for an extra per job with `IncludeResources` (`kloakd.ResourceImages`,
+`ResourceMedia`, `ResourceFonts`, `ResourceStylesheets`, `ResourceTracking`)
+on `CrawlOptions`, `CrawlExtractOptions` and the estimate options. With
+`CaptureMode: "visual"`, images and stylesheets are included automatically:
+give the estimate the job's `CaptureMode` and it lists them in
+`IncludeResourcesLocked` (extras the user cannot turn off), while its
+`IncludeResources` is the effective set.
+
+Extras are off by default on every browser route, not only crawls:
+`FetchOptions` (`Evadr.Fetch`), `FetchAsyncOptions` (`Evadr.FetchAsync`),
+`FetchStreamOptions` (`Evadr.FetchStream`), `ExtractOptions`
+(`Kolektr.Extract`) and `ExtractHTMLOptions` (`Kolektr.ExtractHTML`) take
+the same `IncludeResources`; unset means none.
+
+```go
+res, err := client.Evadr.Fetch(ctx, url, &kloakd.FetchOptions{IncludeResources: []string{kloakd.ResourceImages}})
+ext, err := client.Kolektr.Extract(ctx, url, &kloakd.ExtractOptions{IncludeResources: []string{kloakd.ResourceStylesheets}})
+```
+
+The estimate also says how much data the job should use and what that is
+of your allowance:
+
+| Field | Meaning |
+|---|---|
+| `Data.TotalMB` | `Low`, `Typical`, `High` MB for the job (`EstGB` is `Typical / 1000`) |
+| `Data.PerPageMB` | `Typical` and `High` MB per page |
+| `Data.TotalMBAllResources`, `Data.SavingMB` | the total with every extra loaded, and what leaving them out saves |
+| `Data.ByCategoryMBPerPage`, `Data.SavingByCategoryMB` | the same per category (`images`, `fonts`, ...) |
+| `Data.Source` | `site_profile` (measured pages of the host), `root_page` or `typical` |
+| `ShareOfRemaining` | `Typical` and `High` share (0–1) of the remaining allowance; nil when unknown |
+| `ConsentRequired`, `Risks` | whether the user must accept the estimate, and why it may cost more |
+| `SuggestedMaxDataMB` | a data limit for the job (`Data.TotalMB.High`, rounded up) |
+| `EstimateID` | the estimate's token, valid 30 minutes |
+
+`MaxDataMB` caps the data a job may use. At the limit no new page starts,
+the pages in flight finish, and the job ends partial with `PartialReason`
+`"data_limit"` (`kloakd.PartialReasonDataLimit`); continue it with a higher
+`ContinueOptions.MaxDataMB`. Without `MaxDataMB` there is no per-job limit.
+Status results have `DataUsedMB`, `MaxDataMB` and `IncludeResources`.
+
+Send the estimate's `EstimateID` and `CostAcknowledged: true` once the user
+has accepted it. A dashboard session whose estimate has `ConsentRequired` is
+refused without them (409, `*kloakd.CostAcknowledgementRequiredError`). API
+keys are not refused: a program has no one to show the estimate to, so the
+check is yours. The API records the acknowledgement with the job.
+
+```go
+est, err := client.Webgrph.EstimateCrawl(ctx, url, &kloakd.CrawlEstimateOptions{MaxPages: 200})
+if err != nil {
+    return err
+}
+opts := &kloakd.CrawlOptions{MaxPages: est.MaxPages, EstimateID: est.EstimateID}
+if est.SuggestedMaxDataMB != nil {
+    opts.MaxDataMB = *est.SuggestedMaxDataMB
+}
+if est.ConsentRequired {
+    // show est.Data, est.ShareOfRemaining and est.Risks, and ask
+    opts.CostAcknowledged = true
+}
+started, err := client.Webgrph.StartCrawl(ctx, url, opts)
+```
+
+#### Map the site first
+
+`MapSite` lists a site's URLs by branch (from robots.txt, the sitemaps and
+the start page's links; no other page is fetched). It is metered like a
+crawl and needs the same plan. Then crawl only the branches you want with
+`IncludePaths`, or exactly the pages you want with `URLs` (same registrable
+domain, capped at `MaxPages`; links are not followed):
+
+```go
+m, err := client.Webgrph.MapSite(ctx, url, &kloakd.MapSiteOptions{MaxURLs: 5000})
+// m.Source: sitemap, links or both; m.TotalURLs, m.Truncated, m.DataUsedMB
+for _, b := range m.Branches { // up to 3 levels; b.Children, b.SampleURLs
+    fmt.Println(b.Path, b.URLCount)
+}
+job, err := client.Webgrph.StartCrawlExtract(ctx, url, &kloakd.CrawlExtractOptions{IncludePaths: []string{"/products/"}})
+// Try one page first
+job, err = client.Webgrph.StartCrawlExtract(ctx, url, &kloakd.CrawlExtractOptions{URLs: []string{url}})
+```
+
+Both survive `ContinueCrawl` and a crawl's handoff to its next part.
+
 #### Held crawls
 
 When the organization's quota runs out, the API pauses a running crawl: its
@@ -270,7 +357,7 @@ The result says what happened:
 | Field | Meaning |
 |---|---|
 | `IsPartial` | true: the crawl stopped before asking for every page it found |
-| `PartialReason` | `time_budget`, `max_pages` or `error` |
+| `PartialReason` | `time_budget`, `max_pages`, `error` or `data_limit` |
 | `PagesDiscovered`, `PagesFetched`, `PagesUnfetched` | pages found, pages fetched, pages asked for and not obtained |
 | `Resumable` | true: `ContinueCrawl` can fetch the rest |
 | `ErrorCode` | the API's code for a failed crawl |
@@ -303,9 +390,18 @@ can be continued this way with a larger `MaxPages`. Estimate first with
 _, err = client.Webgrph.ContinueCrawl(ctx, crawl.CrawlID, &kloakd.ContinueOptions{MaxPages: 500})
 
 // A crawl-extract job: continues the crawl, then extracts the new pages
-_, err = client.Webgrph.ContinueCrawlExtract(ctx, job.JobID, &kloakd.ContinueOptions{MaxPages: 500})
+cont, err := client.Webgrph.ContinueCrawlExtract(ctx, job.JobID, &kloakd.ContinueOptions{MaxPages: 500})
+// cont.MaxPages, cont.MaxDepth (the new limits), cont.Links, and
+// cont.TimeBudgetS, cont.ElapsedS, cont.MaxDataMB when the API sends them
 done, err = client.Webgrph.WaitForCrawlExtract(ctx, job.JobID, nil)
 ```
+
+The API answers a crawl-extract continue with 202. A job that cannot be
+continued is an `*kloakd.ApiError` whose `Code` says why: 409
+`continue_needs_more_pages` (it stopped at `max_pages`: give a larger
+`MaxPages`), `continue_needs_more_data` (it stopped at its data limit: give
+a larger `MaxDataMB`), `not_continuable` or `already_continuing`, and 422
+`continue_cannot_lower` for a lowered value.
 
 ### Crawl, extract and download in one job
 
@@ -386,6 +482,27 @@ if saved.Crawl != nil && saved.Crawl.IsPartial != nil && *saved.Crawl.IsPartial 
 `client.DownloadBatchJob(ctx, batchJobID, path, format)` download a batch
 job's results in the same formats. The batch export sends neither
 `X-Job-Status` nor `X-Crawl-*`: `JobStatus` is `""` and `Crawl` is nil.
+
+### Fetched pages (artifacts)
+
+A fetch's stored page can be read back by its artifact id:
+
+```go
+a, err := client.GetArtifact(ctx, artifactID)
+// a.Type: kloakd.ArtifactFetchedContent or kloakd.ArtifactDegradedFetchedContent
+// a.URL, a.FinalURL, a.StatusCode, a.Verified, a.SizeBytes, a.ContentType, a.CreatedAt, a.ContentURL
+dl, err := client.DownloadArtifact(ctx, artifactID) // the stored HTML, streamed
+defer dl.Body.Close()                               // dl.Filename: "<host>-<id8>.html"
+saved, err := client.SaveArtifact(ctx, artifactID, "page.html")
+```
+
+`FinalURL` and `StatusCode` are nil when the fetch did not record them. The
+content is the raw HTML (`text/html; charset=utf-8`), sent as an attachment.
+Only your organisation's fetched-content artifacts are served: an unknown
+id, another organisation's, a session or cookie artifact, or one with no
+HTML is a 404 `ApiError` ("Artifact not found"); the wrong organisation is a
+403 `ForbiddenError`; an id that is not a UUID is a 422 `ApiError`. The
+content is the site's own HTML: do not render it with scripts enabled.
 
 ### Batch jobs
 
@@ -668,7 +785,7 @@ if err != nil {
 }
 ```
 
-**Error types:** `KloakdError` (with `Code`, the API's error word), `AuthenticationError` (401), `PaymentRequiredError` (402), `NotEntitledError` (403 `not_entitled` / `tier_access_denied`, with `Module`, `Feature`, `CurrentTier`, `RequiredTier`), `ForbiddenError` (any other 403; `errors.As` with a `*ForbiddenError` also matches a `NotEntitledError`), `ConcurrencyLimitError` (409 `concurrent_limit`, with `Tier`, `ConcurrentLimit`, `ActiveCrawls`, `ActiveRequests`; not retried), `QuotaExceededError` (429 `gb_exhausted`), `RateLimitError` (429; `QuotaExhausted` for the playground quota), `UpstreamError` (502), `BillingUnavailableError` (503 `billing_unavailable`), `ApiError` (other 4xx/5xx; `JobID` on `job_failed` / `job_timeout` / `crawl_timeout`; `Code` holds the API's error code, for example 409 `invalid_batch_transition` and 503 `dispatch_failed` on the batch calls). A body that is not JSON becomes the message; a 422's `detail[]` is kept as `field: message; ...`.
+**Error types:** `KloakdError` (with `Code`, the API's error word), `AuthenticationError` (401), `PaymentRequiredError` (402), `NotEntitledError` (403 `not_entitled` / `tier_access_denied`, with `Module`, `Feature`, `CurrentTier`, `RequiredTier`), `ForbiddenError` (any other 403; `errors.As` with a `*ForbiddenError` also matches a `NotEntitledError`), `ConcurrencyLimitError` (409 `concurrent_limit`, with `Tier`, `ConcurrentLimit`, `ActiveCrawls`, `ActiveRequests`; not retried), `CostAcknowledgementRequiredError` (409 `cost_acknowledgement_required`: start with the estimate's `EstimateID` and `CostAcknowledged`; not retried), `QuotaExceededError` (429 `gb_exhausted`), `RateLimitError` (429; `QuotaExhausted` for the playground quota), `UpstreamError` (502), `BillingUnavailableError` (503 `billing_unavailable`), `ApiError` (other 4xx/5xx; `JobID` on `job_failed` / `job_timeout` / `crawl_timeout`; `Code` holds the API's error code, for example 409 `invalid_batch_transition` and 503 `dispatch_failed` on the batch calls). A body that is not JSON becomes the message; a 422's `detail[]` is kept as `field: message; ...`.
 
 ## Concurrency (work slots)
 
