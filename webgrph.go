@@ -44,6 +44,30 @@ type CrawlOptions struct {
 	// (PageNode.IsGrouping), which were not fetched. By default only
 	// fetched pages are listed, so len(Pages) matches TotalPages (0.6.0).
 	IncludeGrouping bool
+	// Cost control (COST-CONTROL-CONTRACT.md, 15 Nov 2026); zero values
+	// are not sent. IncludeResources lists the page extras to load
+	// (ResourceImages, ResourceMedia, ResourceFonts, ResourceStylesheets,
+	// ResourceTracking): none by default. MaxDataMB is the job's data
+	// limit in MB (0: no per-job limit); at the limit the job ends partial
+	// with PartialReason "data_limit". EstimateID is the
+	// CrawlEstimate.EstimateID the user accepted, and CostAcknowledged
+	// (sent only when true) says so: a dashboard session whose estimate
+	// has ConsentRequired is refused without them (409,
+	// *CostAcknowledgementRequiredError); API keys are not refused. URLs
+	// fetches exactly these pages (same registrable domain as the start
+	// URL, capped at max_pages, links not followed; the first is the
+	// root). IncludePaths follows only links under these path prefixes
+	// (the start page is always fetched); see Webgrph.MapSite.
+	IncludeResources []string
+	MaxDataMB        float64
+	EstimateID       string
+	CostAcknowledged bool
+	URLs             []string
+	IncludePaths     []string
+}
+
+func (o *CrawlOptions) costControl() costControl {
+	return costControl{o.IncludeResources, o.MaxDataMB, o.EstimateID, o.CostAcknowledged, o.URLs, o.IncludePaths}
 }
 
 // StartCrawl starts a site crawl and returns at once (HTTP 202) with its
@@ -76,6 +100,7 @@ func (w *WebgrphNamespace) StartCrawl(ctx context.Context, targetURL string, opt
 		if len(opts.Budget) > 0 {
 			body["budget"] = opts.Budget
 		}
+		opts.costControl().apply(body)
 	}
 	raw, err := w.t.post(ctx, "webgrph/crawl", body)
 	if err != nil {
@@ -199,26 +224,29 @@ const crawlHeldQuota = "held_quota"
 func crawlResultFromStatus(crawlID string, status map[string]interface{}) *CrawlResult {
 	state := strField(status, "status")
 	return &CrawlResult{
-		Success:         state == "completed",
-		CrawlID:         crawlID,
-		Status:          state,
-		TotalPages:      intField(status, "total_pages"),
-		MaxDepthReached: intField(status, "max_depth_reached"),
-		ArtifactID:      optStrField(status, "artifact_id"),
-		Error:           optStrField(status, "error"),
-		Pages:           []PageNode{},
-		Held:            state == crawlHeldQuota,
-		Message:         optStrField(status, "message"),
-		IsPartial:       optBoolField(status, "is_partial"),
-		PartialReason:   optStrField(status, "partial_reason"),
-		Resumable:       boolField(status, "resumable"),
-		PagesDiscovered: optIntField(status, "pages_discovered"),
-		PagesFetched:    optIntField(status, "pages_fetched"),
-		PagesUnfetched:  optIntField(status, "pages_unfetched"),
-		ErrorCode:       optStrField(status, "error_code"),
-		TimeBudgetS:     optIntField(status, "time_budget_s"),
-		ElapsedS:        optFloatField(status, "elapsed_s"),
-		EstRemainingS:   optFloatField(status, "est_remaining_s"),
+		Success:          state == "completed",
+		CrawlID:          crawlID,
+		Status:           state,
+		TotalPages:       intField(status, "total_pages"),
+		MaxDepthReached:  intField(status, "max_depth_reached"),
+		ArtifactID:       optStrField(status, "artifact_id"),
+		Error:            optStrField(status, "error"),
+		Pages:            []PageNode{},
+		Held:             state == crawlHeldQuota,
+		Message:          optStrField(status, "message"),
+		IsPartial:        optBoolField(status, "is_partial"),
+		PartialReason:    optStrField(status, "partial_reason"),
+		Resumable:        boolField(status, "resumable"),
+		PagesDiscovered:  optIntField(status, "pages_discovered"),
+		PagesFetched:     optIntField(status, "pages_fetched"),
+		PagesUnfetched:   optIntField(status, "pages_unfetched"),
+		ErrorCode:        optStrField(status, "error_code"),
+		TimeBudgetS:      optIntField(status, "time_budget_s"),
+		ElapsedS:         optFloatField(status, "elapsed_s"),
+		EstRemainingS:    optFloatField(status, "est_remaining_s"),
+		DataUsedMB:       optFloatField(status, "data_used_mb"),
+		MaxDataMB:        optFloatField(status, "max_data_mb"),
+		IncludeResources: optStrSliceField(status, "include_resources"),
 	}
 }
 
@@ -304,7 +332,8 @@ func (w *WebgrphNamespace) CrawlStream(ctx context.Context, targetURL string, op
 // (running, completed, failed, cancelled or held_quota), total_pages,
 // message, and the outcome fields CrawlResult names (is_partial,
 // partial_reason, resumable, pages_discovered, pages_fetched,
-// pages_unfetched, error_code, time_budget_s, elapsed_s, est_remaining_s).
+// pages_unfetched, error_code, time_budget_s, elapsed_s, est_remaining_s,
+// data_used_mb, max_data_mb, include_resources).
 func (w *WebgrphNamespace) GetCrawlStatus(ctx context.Context, crawlID string) (map[string]interface{}, error) {
 	return w.t.get(ctx, pathf("webgrph/crawl/%s", crawlID), nil)
 }

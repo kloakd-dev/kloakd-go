@@ -85,6 +85,31 @@ type CrawlExtractOptions struct {
 	// and 60 min; ctx cancellation also stops it).
 	PollInterval time.Duration
 	PollTimeout  time.Duration
+	// Cost control (COST-CONTROL-CONTRACT.md, 15 Nov 2026); zero values
+	// are not sent. IncludeResources lists the page extras to load
+	// (ResourceImages, ResourceMedia, ResourceFonts, ResourceStylesheets,
+	// ResourceTracking): none by default. MaxDataMB is the job's data
+	// limit in MB (0: no per-job limit); at the limit the job ends partial
+	// with PartialReason "data_limit". EstimateID is the
+	// CrawlEstimate.EstimateID the user accepted, and CostAcknowledged
+	// (sent only when true) says so: a dashboard session whose estimate
+	// has ConsentRequired is refused without them (409,
+	// *CostAcknowledgementRequiredError); API keys are not refused. URLs
+	// fetches exactly these pages (same registrable domain as the start
+	// URL, capped at max_pages, links not followed; the first is the
+	// root). IncludePaths follows only links under these path prefixes
+	// (the start page is always fetched); see Webgrph.MapSite. The
+	// fields are those of CrawlOptions.
+	IncludeResources []string
+	MaxDataMB        float64
+	EstimateID       string
+	CostAcknowledged bool
+	URLs             []string
+	IncludePaths     []string
+}
+
+func (o *CrawlExtractOptions) costControl() costControl {
+	return costControl{o.IncludeResources, o.MaxDataMB, o.EstimateID, o.CostAcknowledged, o.URLs, o.IncludePaths}
 }
 
 // CrawlExtractLinks are the job's routes, as paths from the API's root.
@@ -163,7 +188,14 @@ type CrawlExtractStatus struct {
 	TimeBudgetS   *int
 	ElapsedS      *float64
 	EstRemainingS *float64
-	Raw           map[string]interface{}
+	// DataUsedMB is the data the job has used, MaxDataMB its data limit
+	// (nil: no per-job limit) and IncludeResources the extras it loads.
+	// nil when the API did not send them. A job stopped at its limit has
+	// Crawl.PartialReason "data_limit" (PartialReasonDataLimit).
+	DataUsedMB       *float64
+	MaxDataMB        *float64
+	IncludeResources []string
+	Raw              map[string]interface{}
 }
 
 // CrawlExtractCrawl is the crawl of a crawl-extract job, as the job's
@@ -174,7 +206,8 @@ type CrawlExtractCrawl struct {
 	// cancelled or held_quota), not the job's.
 	Status string
 	// IsPartial is true when the crawl stopped before asking for every
-	// page it found; PartialReason is then time_budget, max_pages or error.
+	// page it found; PartialReason is then time_budget, max_pages, error
+	// or data_limit (PartialReasonDataLimit).
 	IsPartial       *bool
 	PartialReason   *string
 	PagesDiscovered *int
@@ -300,7 +333,7 @@ type ExportDownload struct {
 type ExportCrawl struct {
 	Status          *string // X-Crawl-Status
 	IsPartial       *bool   // X-Crawl-Partial
-	PartialReason   *string // X-Crawl-Partial-Reason: time_budget, max_pages or error
+	PartialReason   *string // X-Crawl-Partial-Reason: time_budget, max_pages, error or data_limit
 	PagesDiscovered *int    // X-Crawl-Pages-Discovered
 	PagesFetched    *int    // X-Crawl-Pages-Fetched
 	PagesUnfetched  *int    // X-Crawl-Pages-Unfetched
@@ -358,6 +391,7 @@ func (w *WebgrphNamespace) StartCrawlExtract(ctx context.Context, targetURL stri
 		if opts.Extract != nil {
 			body["extract"] = crawlExtractSpecBody(opts.Extract)
 		}
+		opts.costControl().apply(body)
 	}
 	raw, err := w.t.post(ctx, "webgrph/crawl-extract", body)
 	if err != nil {
@@ -873,21 +907,24 @@ func parseCrawlExtractStatus(raw map[string]interface{}) *CrawlExtractStatus {
 			PagesFailed:    intField(progress, "pages_failed"),
 			Items:          intField(progress, "items"),
 		},
-		Error:         optStrField(raw, "error"),
-		ErrorCode:     optStrField(raw, "error_code"),
-		Request:       mapField(raw, "request"),
-		CreatedAt:     optStrField(raw, "created_at"),
-		StartedAt:     optStrField(raw, "started_at"),
-		CompletedAt:   optStrField(raw, "completed_at"),
-		UpdatedAt:     optStrField(raw, "updated_at"),
-		Links:         parseCrawlExtractLinks(mapField(raw, "links")),
-		PagesByMethod: methods,
-		Shapes:        shapes,
-		Crawl:         crawl,
-		Held:          crawl != nil && crawl.Status == crawlHeldQuota,
-		TimeBudgetS:   optIntField(raw, "time_budget_s"),
-		ElapsedS:      optFloatField(raw, "elapsed_s"),
-		EstRemainingS: optFloatField(raw, "est_remaining_s"),
-		Raw:           raw,
+		Error:            optStrField(raw, "error"),
+		ErrorCode:        optStrField(raw, "error_code"),
+		Request:          mapField(raw, "request"),
+		CreatedAt:        optStrField(raw, "created_at"),
+		StartedAt:        optStrField(raw, "started_at"),
+		CompletedAt:      optStrField(raw, "completed_at"),
+		UpdatedAt:        optStrField(raw, "updated_at"),
+		Links:            parseCrawlExtractLinks(mapField(raw, "links")),
+		PagesByMethod:    methods,
+		Shapes:           shapes,
+		Crawl:            crawl,
+		Held:             crawl != nil && crawl.Status == crawlHeldQuota,
+		TimeBudgetS:      optIntField(raw, "time_budget_s"),
+		ElapsedS:         optFloatField(raw, "elapsed_s"),
+		EstRemainingS:    optFloatField(raw, "est_remaining_s"),
+		DataUsedMB:       optFloatField(raw, "data_used_mb"),
+		MaxDataMB:        optFloatField(raw, "max_data_mb"),
+		IncludeResources: optStrSliceField(raw, "include_resources"),
+		Raw:              raw,
 	}
 }

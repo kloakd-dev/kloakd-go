@@ -24,6 +24,33 @@ which the API builds on feature/2026-11-14-crawl-estimate.
 - `testdata/routes.tsv`: the three new routes, added by hand from the
   contract (283 rows).
 
+For the cost-control contract of 15 Nov 2026 (COST-CONTROL-CONTRACT.md),
+which the API builds on feature/2026-11-15-cost-control.
+
+### Added
+- `CrawlOptions` and `CrawlExtractOptions`: `IncludeResources`,
+  `MaxDataMB`, `EstimateID`, `CostAcknowledged`, `URLs`, `IncludePaths`
+  (sent only when set; existing calls send the same body as before).
+  Constants `ResourceImages`, `ResourceMedia`, `ResourceFonts`,
+  `ResourceStylesheets`, `ResourceTracking`.
+- `ContinueOptions.MaxDataMB`: raise a job's data limit when continuing it.
+- `CrawlEstimateOptions` and `CrawlExtractEstimateOptions`:
+  `IncludeResources`. `CrawlEstimate`: `IncludeResources`, `Data`
+  (`CrawlEstimateData` with `DataRange`s and per-category maps),
+  `ShareOfRemaining`, `ConsentRequired`, `Risks`, `SuggestedMaxDataMB`,
+  `EstimateID`.
+- `CrawlResult` and `CrawlExtractStatus`: `DataUsedMB`, `MaxDataMB`,
+  `IncludeResources`. `PartialReasonDataLimit` (`"data_limit"`).
+- `Webgrph.MapSite` (`POST webgrph/map`), returning a `SiteMap` with a
+  `SiteMapBranch` tree; `MapSiteOptions.MaxURLs`.
+- `Client.GetArtifact` (`GET artifacts/{artifact_id}`, `Artifact`),
+  `Client.DownloadArtifact` (`GET artifacts/{artifact_id}/content`, a
+  streamed `*ExportDownload`) and `Client.SaveArtifact`.
+- `CostAcknowledgementRequiredError` for 409
+  `cost_acknowledgement_required` (in `detail` or at the top level).
+- `testdata/routes.tsv`: the three new routes, added by hand from the
+  contract (286 rows).
+
 ## [0.7.0] — 2026-11-12
 
 For the API at kobe-scraper 6bd19e9b; the batch and unified scrape

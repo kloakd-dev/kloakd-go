@@ -1,5 +1,21 @@
 # Routes called by the Go SDK
 
+## Unreleased: cost control
+
+From COST-CONTROL-CONTRACT.md (15 Nov 2026); the API builds these on feature/2026-11-15-cost-control, so they are not yet checked against a kobe-scraper commit. The three new routes were added to `testdata/routes.tsv` by hand (286 rows); `TestContract_CostControlRoutesAreCalled` checks them. Re-check against the API's branch before release.
+
+| Call | Change |
+|---|---|
+| `POST webgrph/crawl`, `POST webgrph/crawl-extract` | body adds `include_resources?`, `max_data_mb?`, `estimate_id?`, `cost_acknowledged?` (only when true), `urls?`, `include_paths?`; 409 `cost_acknowledgement_required` (`CostAcknowledgementRequiredError`) |
+| `POST webgrph/crawl/{crawl_id}/continue`, `POST webgrph/crawl-extract/{job_id}/continue` | body adds `max_data_mb?` (`ContinueOptions.MaxDataMB`) |
+| `POST webgrph/crawl/estimate`, `POST webgrph/crawl-extract/estimate` | body adds `include_resources?`; reads `include_resources`, `data`, `share_of_remaining`, `consent_required`, `risks`, `suggested_max_data_mb`, `estimate_id` |
+| `GET webgrph/crawl/{crawl_id}`, `GET webgrph/crawl-extract/{job_id}` | read `data_used_mb`, `max_data_mb`, `include_resources`; `partial_reason` may be `data_limit` |
+| `POST webgrph/map` | new: `MapSite`; body `{url, max_urls?}`; answers `SiteMap` |
+| `GET artifacts/{artifact_id}` | new: `GetArtifact`; answers `Artifact` |
+| `GET artifacts/{artifact_id}/content` | new: `DownloadArtifact`, `SaveArtifact`; the stored HTML as an attachment |
+
+`GET activity/usage` (`by_proxy_type_bytes`) is not called by the SDK.
+
 ## Unreleased: crawl estimate and continue with options
 
 From CRAWL-ESTIMATE-CONTRACT.md (14 Nov 2026); the API builds these on feature/2026-11-14-crawl-estimate, so they are not yet checked against a kobe-scraper commit. The three new routes were added to `testdata/routes.tsv` by hand (283 rows); `TestContract_EstimateAndContinueRoutesAreCalled` checks them. Re-check against the API's branch before release.

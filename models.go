@@ -134,8 +134,10 @@ type CrawlResult struct {
 	// Message is the API's text for a held crawl; nil otherwise.
 	Message *string
 	// IsPartial is true when the crawl stopped before asking for every
-	// page it found; PartialReason is then time_budget, max_pages or
-	// error. nil until the crawl has reported it.
+	// page it found; PartialReason is then time_budget, max_pages, error
+	// or data_limit (PartialReasonDataLimit: stopped at MaxDataMB;
+	// continue with a higher ContinueOptions.MaxDataMB). nil until the
+	// crawl has reported it.
 	IsPartial     *bool
 	PartialReason *string
 	// Resumable is true when Webgrph.ContinueCrawl can fetch the rest.
@@ -155,6 +157,13 @@ type CrawlResult struct {
 	TimeBudgetS   *int
 	ElapsedS      *float64
 	EstRemainingS *float64
+	// DataUsedMB is the data the crawl has used, MaxDataMB its data limit
+	// (nil: no per-job limit) and IncludeResources the extras it loads.
+	// nil when the API did not send them (WaitForCrawl and GetCrawlStatus
+	// read them; StartCrawl's answer has none).
+	DataUsedMB       *float64
+	MaxDataMB        *float64
+	IncludeResources []string
 }
 
 // CrawlEvent is yielded by Webgrph.CrawlStream and Webgrph.CrawlEvents: a

@@ -632,7 +632,10 @@ func TestContract_BatchAndUnifiedScrapeRoutesAreLiveAndCalled(t *testing.T) {
 // CRAWL-ESTIMATE-CONTRACT.md (14 Nov 2026) added by hand while the API
 // builds them on feature/2026-11-14-crawl-estimate: POST
 // webgrph/crawl/estimate, POST webgrph/crawl-extract/estimate and POST
-// webgrph/crawl-extract/{job_id}/continue.
+// webgrph/crawl-extract/{job_id}/continue, and the three routes of
+// COST-CONTROL-CONTRACT.md (15 Nov 2026) added by hand while the API
+// builds them on feature/2026-11-15-cost-control: POST webgrph/map, GET
+// artifacts/{artifact_id} and GET artifacts/{artifact_id}/content.
 func TestContract_TheRouteListIsTheIntegrationBranchs(t *testing.T) {
 	f, err := os.Open(filepath.Join("testdata", "routes.tsv"))
 	if err != nil {
@@ -650,7 +653,7 @@ func TestContract_TheRouteListIsTheIntegrationBranchs(t *testing.T) {
 			t.Errorf("a removed performance route is still listed: %s", sc.Text())
 		}
 	}
-	if rows != 283 {
-		t.Errorf("expected 283 routes, found %d", rows)
+	if rows != 286 {
+		t.Errorf("expected 286 routes, found %d", rows)
 	}
 }
