@@ -107,6 +107,12 @@ type CrawlExtractOptions struct {
 	CostAcknowledged bool
 	URLs             []string
 	IncludePaths     []string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 func (o *CrawlExtractOptions) costControl() costControl {
@@ -393,6 +399,7 @@ func (w *WebgrphNamespace) StartCrawlExtract(ctx context.Context, targetURL stri
 			body["extract"] = crawlExtractSpecBody(opts.Extract)
 		}
 		opts.costControl().apply(body)
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 	raw, err := w.t.post(ctx, "webgrph/crawl-extract", body)
 	if err != nil {

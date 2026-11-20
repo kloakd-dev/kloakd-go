@@ -65,6 +65,12 @@ type CrawlOptions struct {
 	CostAcknowledged bool
 	URLs             []string
 	IncludePaths     []string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 func (o *CrawlOptions) costControl() costControl {
@@ -102,6 +108,7 @@ func (w *WebgrphNamespace) StartCrawl(ctx context.Context, targetURL string, opt
 			body["budget"] = opts.Budget
 		}
 		opts.costControl().apply(body)
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 	raw, err := w.t.post(ctx, "webgrph/crawl", body)
 	if err != nil {
@@ -304,6 +311,12 @@ type CrawlStreamOptions struct {
 	CaptureMode          string
 	Scope                map[string]interface{}
 	Budget               map[string]interface{}
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // CrawlStream starts a crawl and streams its events
@@ -321,6 +334,7 @@ func (w *WebgrphNamespace) CrawlStream(ctx context.Context, targetURL string, op
 		crawlOpts.CaptureMode = opts.CaptureMode
 		crawlOpts.Scope = opts.Scope
 		crawlOpts.Budget = opts.Budget
+		crawlOpts.RobotsAcknowledgedHosts = opts.RobotsAcknowledgedHosts
 	}
 	started, err := w.StartCrawl(ctx, targetURL, crawlOpts)
 	if err != nil {
@@ -454,6 +468,12 @@ type ReaderViewOptions struct {
 	CrawlID string
 	// SessionArtifactID fetches with an authenticated Fetchyr session.
 	SessionArtifactID string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // ReaderView returns a page's readable content.
@@ -466,6 +486,7 @@ func (w *WebgrphNamespace) ReaderView(ctx context.Context, targetURL string, opt
 		if opts.SessionArtifactID != "" {
 			body["session_artifact_id"] = opts.SessionArtifactID
 		}
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 	return w.t.post(ctx, "webgrph/reader-view", body)
 }

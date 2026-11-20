@@ -74,6 +74,13 @@ type BatchJobOptions struct {
 	EntityType string
 	// Fields are the names of the fields to extract.
 	Fields []string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop for these
+	// hosts in this batch only, sent as robots_acknowledged_hosts when
+	// set. The batch is not refused with a 409: an item whose URL
+	// robots.txt stops fails with ROBOTS_DISALLOWED in its error. Name a
+	// host only when you have the right to access its content despite its
+	// robots.txt; KLOAKD records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // ListBatchJobsOptions pages Client.ListBatchJobs. Zero values mean the
@@ -139,6 +146,7 @@ func (c *Client) CreateBatchJob(ctx context.Context, urls []string, opts *BatchJ
 		if opts.Fields != nil {
 			body["fields"] = opts.Fields
 		}
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 	raw, err := c.t.post(ctx, "batch-jobs", body)
 	if err != nil {
@@ -277,6 +285,12 @@ type UnifiedScrapeOptions struct {
 	// PollTimeout for following a scrape the API hands off as a job.
 	PollInterval time.Duration
 	PollTimeout  time.Duration
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // UnifiedEscalation is one step of a unified scrape's escalation
@@ -390,6 +404,7 @@ func (c *Client) UnifiedScrape(ctx context.Context, targetURL string, opts *Unif
 		if opts.SessionArtifactID != "" {
 			body["session_artifact_id"] = opts.SessionArtifactID
 		}
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 		poll = &PollOptions{Interval: opts.PollInterval, Timeout: opts.PollTimeout}
 	}
 	raw, err := c.t.postFollowing(ctx, "scraping/unified", body, poll)

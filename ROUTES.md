@@ -1,5 +1,21 @@
 # Routes called by the Go SDK
 
+## Unreleased: robots.txt acknowledgement
+
+From kobe-scraper `core/compliance/robots.py` (`RobotsAcknowledgementField`, `stop_detail`, `unavailable`), deployed 19 Nov 2026. No route is added or removed; `testdata/routes.tsv` is unchanged.
+
+| Call | Change |
+|---|---|
+| `POST evadr/fetch`, `POST evadr/fetch/async`, `POST evadr/scan`, `POST evadr/profile` | body adds `robots_acknowledged_hosts?` (`Fetch`, `FetchAsync`, `FetchStream`, `Scan`, `Profile`) |
+| `POST kolektr/extract` | body adds `robots_acknowledged_hosts?` (`Extract`, `Page`); not `kolektr/extract/html`, which fetches nothing |
+| `POST kolektr/api-data/{api_endpoint}/extract-all` | query adds `robots_acknowledged_hosts` once per host (`ExtractAllAPIData`) |
+| `POST webgrph/crawl`, `POST webgrph/crawl/estimate`, `POST webgrph/crawl/{crawl_id}/continue`, `POST webgrph/map`, `POST webgrph/reader-view` | body adds `robots_acknowledged_hosts?` (`StartCrawl`, `Crawl`, `CrawlAll`, `CrawlStream`, `EstimateCrawl`, `ContinueCrawl`, `MapSite`, `ReaderView`); a continue sends a body when this is its only option |
+| `POST webgrph/crawl-extract`, `POST webgrph/crawl-extract/estimate`, `POST webgrph/crawl-extract/{job_id}/continue` | body adds `robots_acknowledged_hosts?` (`StartCrawlExtract`, `CrawlExtract`, `EstimateCrawlExtract`, `ContinueCrawlExtract`) |
+| `POST skanyr/sync`, `POST parlyr/chat`, `POST scraping/unified`, `POST batch-jobs` | body adds `robots_acknowledged_hosts?` (`Sync`, `Chat`, `ChatStream`, `UnifiedScrape`, `CreateBatchJob`) |
+| all of the above | 409 `ROBOTS_DISALLOWED` (`RobotsDisallowedError`); 503 `ROBOTS_CHECK_UNAVAILABLE` (`RobotsCheckUnavailableError`, retried), with reason `exits_refused` (`RobotsExitsRefusedError`, not retried) |
+
+Not called by the SDK, though the API takes the field there: `analysis/complexity`, `analysis/site-profile`, `analysis/page-structure`, `analysis/element-preview`, `analysis/validate-selectors`, `batch/url-import`.
+
 ## Unreleased: cost control
 
 From COST-CONTROL-CONTRACT.md (15 Nov 2026), built on kobe-scraper feature/2026-11-15-cost-control. The estimate, fetch/extract `include_resources` and crawl-extract continue rows were checked against its routers at 964ba78c by the coordinating agent; and checked on 15 Nov against the route table of kobe-scraper feature/2026-11-15-cost-control at f6403fc5, generated with the module routers mounted as `kernel/bootstrap.py` does: it matches the 286 rows here except routes these lists have never carried (FastAPI's `/docs`, `/redoc`, `/openapi.json`, and the watcher and crawler health routes under `/api/v1/health/`, which take the watch token), so the list stands as the generated one. The three new routes were added to `testdata/routes.tsv` by hand (286 rows); `TestContract_CostControlRoutesAreCalled` checks them. 

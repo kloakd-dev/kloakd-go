@@ -97,6 +97,12 @@ type SyncOptions struct {
 	// Policy is "full", "incremental", "conditional" or "head_first"
 	// (default: the site's policy, else incremental).
 	Policy string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // Sync re-fetches a site's changed resources.
@@ -109,6 +115,7 @@ func (s *SkanyrNamespace) Sync(ctx context.Context, siteID string, opts *SyncOpt
 		if opts.Policy != "" {
 			body["policy"] = opts.Policy
 		}
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 	return s.t.post(ctx, "skanyr/sync", body)
 }

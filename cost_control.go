@@ -95,6 +95,12 @@ type CrawlEstimateData struct {
 // API's default).
 type MapSiteOptions struct {
 	MaxURLs int
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // SiteMapBranch is one branch of a site map: a path prefix, how many URLs
@@ -130,8 +136,11 @@ type SiteMap struct {
 // URLs (CrawlOptions, CrawlExtractOptions).
 func (w *WebgrphNamespace) MapSite(ctx context.Context, targetURL string, opts *MapSiteOptions) (*SiteMap, error) {
 	body := map[string]interface{}{"url": targetURL}
-	if opts != nil && opts.MaxURLs > 0 {
-		body["max_urls"] = opts.MaxURLs
+	if opts != nil {
+		if opts.MaxURLs > 0 {
+			body["max_urls"] = opts.MaxURLs
+		}
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 	raw, err := w.t.post(ctx, "webgrph/map", body)
 	if err != nil {

@@ -22,6 +22,12 @@ type CrawlEstimateOptions struct {
 	// set: "visual" locks images and stylesheets on
 	// (CrawlEstimate.IncludeResourcesLocked).
 	CaptureMode string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // CrawlExtractEstimateOptions configures Webgrph.EstimateCrawlExtract.
@@ -33,6 +39,12 @@ type CrawlExtractEstimateOptions struct {
 	// IncludeResources and CaptureMode as in CrawlEstimateOptions.
 	IncludeResources []string
 	CaptureMode      string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // CrawlEstimatePlanLimits are the plan's limits the request was clamped to.
@@ -142,6 +154,7 @@ func (w *WebgrphNamespace) EstimateCrawl(ctx context.Context, targetURL string, 
 		if opts.CaptureMode != "" {
 			body["capture_mode"] = opts.CaptureMode
 		}
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 	raw, err := w.t.post(ctx, "webgrph/crawl/estimate", body)
 	if err != nil {
@@ -164,6 +177,7 @@ func (w *WebgrphNamespace) EstimateCrawlExtract(ctx context.Context, targetURL s
 		if opts.CaptureMode != "" {
 			body["capture_mode"] = opts.CaptureMode
 		}
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 	raw, err := w.t.post(ctx, "webgrph/crawl-extract/estimate", body)
 	if err != nil {
@@ -183,6 +197,12 @@ type ContinueOptions struct {
 	MaxPages  int
 	MaxDepth  int
 	MaxDataMB float64
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // continueBody is the continue request's body: nil (no body, the old
@@ -193,6 +213,7 @@ func continueBody(opts []*ContinueOptions) map[string]interface{} {
 		if o != nil {
 			setLimits(body, o.MaxDepth, o.MaxPages)
 			costControl{MaxDataMB: o.MaxDataMB}.apply(body)
+			applyRobotsAck(body, o.RobotsAcknowledgedHosts)
 		}
 	}
 	if len(body) == 0 {
