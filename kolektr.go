@@ -48,6 +48,12 @@ type ExtractOptions struct {
 	// extras are off by default on every browser route: unset means none
 	// (the page's document, scripts and data are always loaded).
 	IncludeResources []string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // PageOptions is the 0.2 name of ExtractOptions.
@@ -80,6 +86,7 @@ func (k *KolektrNamespace) Extract(ctx context.Context, targetURL string, opts *
 			body["options"] = opts.Options
 		}
 		costControl{IncludeResources: opts.IncludeResources}.apply(body)
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 
 	raw, err := k.t.postFollowing(ctx, "kolektr/extract", body, nil)
@@ -160,11 +167,18 @@ type ExtractAllAPIDataOptions struct {
 	EndpointHash string
 	// MaxRecords bounds the records extracted; 0 means no bound.
 	MaxRecords int
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as the query parameter robots_acknowledged_hosts (once per host)
+	// when set. Name a host only when you have the right to access its
+	// content despite its robots.txt; KLOAKD records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // ExtractAllAPIData starts a job extracting all data from a discovered API endpoint.
 func (k *KolektrNamespace) ExtractAllAPIData(ctx context.Context, apiEndpoint string, opts *ExtractAllAPIDataOptions) (map[string]interface{}, error) {
 	params := map[string]string{}
+	var acknowledged []string
 	if opts != nil {
 		if opts.EndpointHash != "" {
 			params["endpoint_hash"] = opts.EndpointHash
@@ -172,8 +186,10 @@ func (k *KolektrNamespace) ExtractAllAPIData(ctx context.Context, apiEndpoint st
 		if opts.MaxRecords > 0 {
 			params["max_records"] = strconv.Itoa(opts.MaxRecords)
 		}
+		acknowledged = opts.RobotsAcknowledgedHosts
 	}
-	_, raw, err := k.t.do(ctx, http.MethodPost, pathf("kolektr/api-data/%s/extract-all", apiEndpoint), map[string]interface{}{}, params)
+	reqURL := withRobotsAckQuery(k.t.buildURL(pathf("kolektr/api-data/%s/extract-all", apiEndpoint), params), acknowledged)
+	_, raw, err := k.t.doURL(ctx, http.MethodPost, reqURL, map[string]interface{}{})
 	return raw, err
 }
 

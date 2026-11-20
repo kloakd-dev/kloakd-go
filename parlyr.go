@@ -30,12 +30,23 @@ func (p *ParlyrNamespace) Parse(ctx context.Context, message string, opts *Parse
 	return parseParseResult(raw), nil
 }
 
+// ChatOptions configures optional parameters for Parlyr.Chat and
+// ChatStream.
+type ChatOptions struct {
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
+}
+
 // Chat sends a message to a conversation session and collects the turn's
 // SSE events until "end" (see ChatTurn). An "error" event does not make
 // Chat fail: it is collected in Errors and OK is false. The returned error
 // is a request or stream error.
-func (p *ParlyrNamespace) Chat(ctx context.Context, sessionID, message string) (*ChatTurn, error) {
-	events, err := p.ChatStream(ctx, sessionID, message)
+func (p *ParlyrNamespace) Chat(ctx context.Context, sessionID, message string, opts ...*ChatOptions) (*ChatTurn, error) {
+	events, err := p.ChatStream(ctx, sessionID, message, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -91,10 +102,15 @@ func (p *ParlyrNamespace) Chat(ctx context.Context, sessionID, message string) (
 // events as they arrive (see ChatEvent). The channel closes at the API's
 // "end" event (not yielded), when the stream ends, or when ctx is
 // cancelled; if reading the stream failed, the last event carries Err.
-func (p *ParlyrNamespace) ChatStream(ctx context.Context, sessionID, message string) (<-chan ChatEvent, error) {
+func (p *ParlyrNamespace) ChatStream(ctx context.Context, sessionID, message string, opts ...*ChatOptions) (<-chan ChatEvent, error) {
 	body := map[string]interface{}{
 		"session_id": sessionID,
 		"message":    message,
+	}
+	for _, o := range opts {
+		if o != nil {
+			applyRobotsAck(body, o.RobotsAcknowledgedHosts)
+		}
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	raw, err := p.t.postStream(ctx, "parlyr/chat", body)

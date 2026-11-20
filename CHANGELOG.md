@@ -4,6 +4,32 @@ All notable changes to the KLOAKD Go SDK are documented here.
 
 ## [Unreleased]
 
+For the robots.txt acknowledgement (GAP-DOC-35; the API's contract in
+kobe-scraper `core/compliance/robots.py`, deployed 19 Nov 2026).
+
+### Added
+- `RobotsAcknowledgedHosts []string`, sent as `robots_acknowledged_hosts`
+  only when set, on `FetchOptions`, `FetchAsyncOptions`,
+  `FetchStreamOptions`, `ExtractOptions`, `ExtractAllAPIDataOptions` (query
+  parameter, once per host), `CrawlOptions`, `CrawlStreamOptions`,
+  `CrawlEstimateOptions`, `CrawlExtractEstimateOptions`,
+  `CrawlExtractOptions`, `ContinueOptions`, `MapSiteOptions`,
+  `ReaderViewOptions`, `SyncOptions`, `UnifiedScrapeOptions`,
+  `BatchJobOptions` and `CrawlOrchestratorOptions`.
+- `Evadr.Scan` and `Evadr.Profile` take an optional `*ScanOptions` /
+  `*ProfileOptions`, and `Parlyr.Chat` / `ChatStream` an optional
+  `*ChatOptions`, as a variadic last argument; existing calls compile and
+  send the same body.
+- `RobotsDisallowedError` (409 `ROBOTS_DISALLOWED`: `Reason`, `Host`,
+  `Rule`, `URL`, `RedirectedFrom`, `TermsVersion`, `AcknowledgeField`; not
+  retried), `RobotsCheckUnavailableError` (503 `ROBOTS_CHECK_UNAVAILABLE`;
+  retried like `billing_unavailable`) and `RobotsExitsRefusedError` (the
+  same 503 with reason `exits_refused`; not retried; `errors.As` also
+  matches it as a `*RobotsCheckUnavailableError`). Constants
+  `RobotsDisallowedCode`, `RobotsCheckUnavailableCode`, `RobotsReason*`,
+  `RobotsAcknowledgedHostsField`, `MaxRobotsAcknowledgedHosts`.
+- The retry hint also reads `retry_after_s`.
+
 For the crawl estimate contract of 14 Nov 2026 (CRAWL-ESTIMATE-CONTRACT.md),
 which the API builds on feature/2026-11-14-crawl-estimate.
 

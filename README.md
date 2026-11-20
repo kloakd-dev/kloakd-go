@@ -785,7 +785,72 @@ if err != nil {
 }
 ```
 
-**Error types:** `KloakdError` (with `Code`, the API's error word), `AuthenticationError` (401), `PaymentRequiredError` (402), `NotEntitledError` (403 `not_entitled` / `tier_access_denied`, with `Module`, `Feature`, `CurrentTier`, `RequiredTier`), `ForbiddenError` (any other 403; `errors.As` with a `*ForbiddenError` also matches a `NotEntitledError`), `ConcurrencyLimitError` (409 `concurrent_limit`, with `Tier`, `ConcurrentLimit`, `ActiveCrawls`, `ActiveRequests`; not retried), `CostAcknowledgementRequiredError` (409 `cost_acknowledgement_required`: start with the estimate's `EstimateID` and `CostAcknowledged`; not retried), `QuotaExceededError` (429 `gb_exhausted`), `RateLimitError` (429; `QuotaExhausted` for the playground quota), `UpstreamError` (502), `BillingUnavailableError` (503 `billing_unavailable`), `ApiError` (other 4xx/5xx; `JobID` on `job_failed` / `job_timeout` / `crawl_timeout`; `Code` holds the API's error code, for example 409 `invalid_batch_transition` and 503 `dispatch_failed` on the batch calls). A body that is not JSON becomes the message; a 422's `detail[]` is kept as `field: message; ...`.
+**Error types:** `KloakdError` (with `Code`, the API's error word), `AuthenticationError` (401), `PaymentRequiredError` (402), `NotEntitledError` (403 `not_entitled` / `tier_access_denied`, with `Module`, `Feature`, `CurrentTier`, `RequiredTier`), `ForbiddenError` (any other 403; `errors.As` with a `*ForbiddenError` also matches a `NotEntitledError`), `ConcurrencyLimitError` (409 `concurrent_limit`, with `Tier`, `ConcurrentLimit`, `ActiveCrawls`, `ActiveRequests`; not retried), `CostAcknowledgementRequiredError` (409 `cost_acknowledgement_required`: start with the estimate's `EstimateID` and `CostAcknowledged`; not retried), `QuotaExceededError` (429 `gb_exhausted`), `RateLimitError` (429; `QuotaExhausted` for the playground quota), `UpstreamError` (502), `BillingUnavailableError` (503 `billing_unavailable`), `RobotsDisallowedError` (409 `ROBOTS_DISALLOWED`, with `Reason`, `Host`, `Rule`, `URL`, `RedirectedFrom`, `TermsVersion`, `AcknowledgeField`; see [robots.txt](#robotstxt); not retried), `RobotsCheckUnavailableError` (503 `ROBOTS_CHECK_UNAVAILABLE`, with `Reason`, `Host`, `RetryAfter`), `RobotsExitsRefusedError` (the same 503 with reason `exits_refused`; not retried), `ApiError` (other 4xx/5xx; `JobID` on `job_failed` / `job_timeout` / `crawl_timeout`; `Code` holds the API's error code, for example 409 `invalid_batch_transition` and 503 `dispatch_failed` on the batch calls). A body that is not JSON becomes the message; a 422's `detail[]` is kept as `field: message; ...`.
+
+## robots.txt
+
+KLOAKD reads a site's robots.txt before it fetches a page, on every route
+that fetches a site. When the file disallows the page, or cannot be read
+(a 5xx, a timeout, a dropped connection), the call stops with HTTP 409
+`ROBOTS_DISALLOWED`, returned as `*kloakd.RobotsDisallowedError`, and
+nothing is fetched. A missing robots.txt (404) allows everything.
+
+| Field | Meaning |
+|---|---|
+| `Reason` | `"disallowed"` (a rule forbids the page) or `"unreadable"` (the file could not be read) |
+| `Host` | the host to acknowledge, e.g. `www.reddit.com` |
+| `Rule` | the rule that stopped it, e.g. `Disallow: /` |
+| `URL`, `RedirectedFrom` | the page stopped, and the URL asked for when the stop was where it redirected |
+| `TermsVersion` | the Terms an acknowledgement is recorded under |
+| `AcknowledgeField` | `robots_acknowledged_hosts` |
+
+To go past a stop, call again with the host in `RobotsAcknowledgedHosts`
+(sent as `robots_acknowledged_hosts`). By naming a host you confirm that
+you have the right to access its content despite its robots.txt, and you
+accept responsibility for doing so under the Terms. KLOAKD records each
+acknowledgement (who, the organisation, the host, when, the reason shown,
+the Terms version). It counts for that request and those exact hosts only:
+nothing is remembered, so the next call is stopped again unless it names the
+host too. Bare host names only (as `Host` gives them), at most 50 a request;
+anything else is a 422. The SDK never acknowledges a stop by itself and does
+not retry one.
+
+```go
+res, err := client.Evadr.Fetch(ctx, "https://www.reddit.com/r/Python/", nil)
+var stop *kloakd.RobotsDisallowedError
+if errors.As(err, &stop) {
+    log.Printf("%s robots.txt (%s): %s", stop.Host, stop.Reason, stop.Rule)
+    // Only once you (or your user) have confirmed the right to access it:
+    res, err = client.Evadr.Fetch(ctx, "https://www.reddit.com/r/Python/",
+        &kloakd.FetchOptions{RobotsAcknowledgedHosts: []string{stop.Host}})
+}
+```
+
+`RobotsAcknowledgedHosts` is on `FetchOptions`, `FetchAsyncOptions`,
+`FetchStreamOptions`, `ScanOptions` and `ProfileOptions` (`Evadr.Scan` and
+`Evadr.Profile` take them as an optional last argument), `ExtractOptions`,
+`ExtractAllAPIDataOptions` (sent as a query parameter), `CrawlOptions`,
+`CrawlStreamOptions`, `CrawlEstimateOptions`, `CrawlExtractEstimateOptions`,
+`CrawlExtractOptions`, `ContinueOptions`, `MapSiteOptions`,
+`ReaderViewOptions`, `SyncOptions`, `ChatOptions` (`Parlyr.Chat` and
+`ChatStream`, optional last argument), `UnifiedScrapeOptions`,
+`BatchJobOptions` and `CrawlOrchestratorOptions` (`client.Crawl`: the
+discovery crawl and each page's fetch and extraction). A batch is not
+refused with a 409: an item that robots.txt stops fails with
+`ROBOTS_DISALLOWED` in its error.
+
+Two answers are not stops, and there is nothing to acknowledge:
+
+- 503 `ROBOTS_CHECK_UNAVAILABLE` (`*kloakd.RobotsCheckUnavailableError`,
+  with `Host`, `Reason`, `RetryAfter`): KLOAKD could not read the file for
+  reasons of its own capacity. The SDK retries it after `RetryAfter`
+  seconds, like `billing_unavailable`.
+- 503 `ROBOTS_CHECK_UNAVAILABLE` with reason `exits_refused`
+  (`*kloakd.RobotsExitsRefusedError`): every one of KLOAKD's network exits
+  refused to connect to the site, so its robots.txt could not be read. Not
+  the site's answer, and acknowledging does not help. Not retried.
+  `errors.As` with a `*RobotsCheckUnavailableError` also matches it, so test
+  for `*RobotsExitsRefusedError` first.
 
 ## Concurrency (work slots)
 
@@ -796,7 +861,8 @@ Every metered call holds one of the organisation's work slots while it runs; a c
 - 5xx answers (500, 502, 503, 504) and network errors: retried for `GET`, `HEAD` and `DELETE` only; a `POST`, `PUT` or `PATCH` may already have done its work, so it is not sent again
 - 429 `rate_limited`: retried on any method, waiting for the `Retry-After` header, else `retry_after`, else `reset_at`
 - 503 `billing_unavailable`: retried on any method (the request was not started)
-- Not retried: 4xx other than the above (including 409 `concurrent_limit`), 429 `gb_exhausted` and the playground quota (429 with `retry_after` 0 and no reset; waiting does not clear either)
+- 503 `ROBOTS_CHECK_UNAVAILABLE`: retried on any method after `Retry-After` (else `retry_after_s`), except reason `exits_refused` (every exit refused the site), which is not retried
+- Not retried: 4xx other than the above (including 409 `concurrent_limit` and 409 `ROBOTS_DISALLOWED`), 429 `gb_exhausted` and the playground quota (429 with `retry_after` 0 and no reset; waiting does not clear either)
 - Backoff without a hint: `1s × 2^attempt`, capped at 60 s
 - Default max retries: 3 (override via `Config.MaxRetries`; negative for none)
 - `Config.Timeout` applies to each attempt

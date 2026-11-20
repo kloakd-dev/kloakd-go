@@ -27,6 +27,12 @@ type FetchOptions struct {
 	// 202, after about 85 s); ctx cancellation also stops the wait.
 	PollInterval time.Duration
 	PollTimeout  time.Duration
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // HandedOff describes a 202 from a synchronous route: still running,
@@ -52,6 +58,7 @@ func (e *EvadrNamespace) Fetch(ctx context.Context, targetURL string, opts *Fetc
 			body["session_artifact_id"] = opts.SessionArtifactID
 		}
 		costControl{IncludeResources: opts.IncludeResources}.apply(body)
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 
 	var poll *PollOptions
@@ -77,6 +84,12 @@ type FetchAsyncOptions struct {
 	// extras are off by default on every browser route: unset means none
 	// (the page's document, scripts and data are always loaded).
 	IncludeResources []string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // FetchAsync enqueues an anti-bot fetch job and returns the job ID.
@@ -96,6 +109,7 @@ func (e *EvadrNamespace) FetchAsync(ctx context.Context, targetURL string, opts 
 			body["webhook_url"] = opts.WebhookURL
 		}
 		costControl{IncludeResources: opts.IncludeResources}.apply(body)
+		applyRobotsAck(body, opts.RobotsAcknowledgedHosts)
 	}
 
 	raw, err := e.t.post(ctx, "evadr/fetch/async", body)
@@ -113,6 +127,12 @@ type FetchStreamOptions struct {
 	SessionArtifactID string
 	// IncludeResources as in FetchAsyncOptions (passed to FetchAsync).
 	IncludeResources []string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
 // FetchStream starts an asynchronous fetch and streams its progress events
@@ -125,6 +145,7 @@ func (e *EvadrNamespace) FetchStream(ctx context.Context, targetURL string, opts
 		asyncOpts.UseProxy = opts.UseProxy
 		asyncOpts.SessionArtifactID = opts.SessionArtifactID
 		asyncOpts.IncludeResources = opts.IncludeResources
+		asyncOpts.RobotsAcknowledgedHosts = opts.RobotsAcknowledgedHosts
 	}
 	jobID, err := e.FetchAsync(ctx, targetURL, asyncOpts)
 	if err != nil {
@@ -162,15 +183,48 @@ func (e *EvadrNamespace) Analyze(ctx context.Context, targetURL string, opts *An
 	return parseAnalyzeResult(raw), nil
 }
 
-// Scan fetches a URL once (plain HTTP) and reports its anti-bot
-// infrastructure, vendors and challenges.
-func (e *EvadrNamespace) Scan(ctx context.Context, targetURL string) (map[string]interface{}, error) {
-	return e.t.post(ctx, "evadr/scan", map[string]interface{}{"url": targetURL})
+// ScanOptions configures optional parameters for Evadr.Scan.
+type ScanOptions struct {
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
 }
 
-// Profile analyses a URL and returns its canonical site profile.
-func (e *EvadrNamespace) Profile(ctx context.Context, targetURL string) (map[string]interface{}, error) {
-	return e.t.post(ctx, "evadr/profile", map[string]interface{}{"url": targetURL})
+// Scan fetches a URL once (plain HTTP) and reports its anti-bot
+// infrastructure, vendors and challenges. Options are optional.
+func (e *EvadrNamespace) Scan(ctx context.Context, targetURL string, opts ...*ScanOptions) (map[string]interface{}, error) {
+	body := map[string]interface{}{"url": targetURL}
+	for _, o := range opts {
+		if o != nil {
+			applyRobotsAck(body, o.RobotsAcknowledgedHosts)
+		}
+	}
+	return e.t.post(ctx, "evadr/scan", body)
+}
+
+// ProfileOptions configures optional parameters for Evadr.Profile.
+type ProfileOptions struct {
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts in this request only, sent
+	// as robots_acknowledged_hosts when set. Name a host only when you
+	// have the right to access its content despite its robots.txt; KLOAKD
+	// records the acknowledgement.
+	RobotsAcknowledgedHosts []string
+}
+
+// Profile analyses a URL and returns its canonical site profile. Options
+// are optional.
+func (e *EvadrNamespace) Profile(ctx context.Context, targetURL string, opts ...*ProfileOptions) (map[string]interface{}, error) {
+	body := map[string]interface{}{"url": targetURL}
+	for _, o := range opts {
+		if o != nil {
+			applyRobotsAck(body, o.RobotsAcknowledgedHosts)
+		}
+	}
+	return e.t.post(ctx, "evadr/profile", body)
 }
 
 // GetJob polls an async fetch job by ID.

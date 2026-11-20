@@ -463,4 +463,10 @@ type CrawlOrchestratorOptions struct {
 	Scope       map[string]interface{}
 	Budget      map[string]interface{}
 	CaptureMode string
+	// RobotsAcknowledgedHosts acknowledges a robots.txt stop
+	// (*RobotsDisallowedError) for these hosts, sent with the discovery
+	// crawl and with each page's fetch and extraction. Name a host only
+	// when you have the right to access its content despite its
+	// robots.txt; KLOAKD records each acknowledgement.
+	RobotsAcknowledgedHosts []string
 }

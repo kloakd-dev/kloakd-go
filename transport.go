@@ -149,7 +149,8 @@ func (t *transport) doURL(
 //     before any work), honouring Retry-After / retry_after / reset_at,
 //     except the playground quota (retry_after 0, no reset), which does not
 //     clear by waiting;
-//   - a 503 billing_unavailable is retried on any method (no work was done).
+//   - a 503 billing_unavailable, or ROBOTS_CHECK_UNAVAILABLE other than
+//     exits_refused, is retried on any method (no work was done).
 func (t *transport) send(
 	ctx context.Context,
 	method, reqURL string,
@@ -224,6 +225,10 @@ func shouldRetry(method string, err error) bool {
 		return !e.QuotaExhausted
 	case *BillingUnavailableError:
 		return true
+	case *RobotsCheckUnavailableError:
+		// KLOAKD's own capacity: nothing was done. Every exit refusing the
+		// site (*RobotsExitsRefusedError) is not retried.
+		return true
 	case *UpstreamError:
 		return idempotent(method)
 	case *ApiError:
@@ -276,6 +281,10 @@ func retryAfterHint(headers http.Header, body map[string]interface{}, now time.T
 	}
 	for _, m := range []map[string]interface{}{detailMap(body), body} {
 		if secs := numField(m, "retry_after"); secs > 0 {
+			return time.Duration(secs * float64(time.Second)), true
+		}
+		// ROBOTS_CHECK_UNAVAILABLE gives retry_after_s.
+		if secs := numField(m, "retry_after_s"); secs > 0 {
 			return time.Duration(secs * float64(time.Second)), true
 		}
 	}

@@ -135,6 +135,7 @@ func orchestratorCrawlOptions(opts *CrawlOrchestratorOptions) *CrawlOptions {
 		crawlOpts.Scope = opts.Scope
 		crawlOpts.Budget = opts.Budget
 		crawlOpts.CaptureMode = opts.CaptureMode
+		crawlOpts.RobotsAcknowledgedHosts = opts.RobotsAcknowledgedHosts
 	}
 	return crawlOpts
 }
@@ -183,6 +184,7 @@ func (c *Client) crawlPage(ctx context.Context, pageURL string, opts *CrawlOrche
 	fetchOpts := &FetchOptions{}
 	if opts != nil {
 		fetchOpts.SessionArtifactID = opts.SessionArtifactID
+		fetchOpts.RobotsAcknowledgedHosts = opts.RobotsAcknowledgedHosts
 	}
 	fetchResult, err := c.Evadr.Fetch(ctx, pageURL, fetchOpts)
 	if err != nil {
@@ -215,7 +217,8 @@ func (c *Client) crawlPage(ctx context.Context, pageURL string, opts *CrawlOrche
 	if opts.ExtractItemSelector != "" {
 		spec[itemSelectorKey] = strings.TrimPrefix(opts.ExtractItemSelector, "css:")
 	}
-	extractOpts := &ExtractOptions{SchemaSpec: spec, SessionArtifactID: opts.SessionArtifactID}
+	extractOpts := &ExtractOptions{SchemaSpec: spec, SessionArtifactID: opts.SessionArtifactID,
+		RobotsAcknowledgedHosts: opts.RobotsAcknowledgedHosts}
 	if fetchResult.ArtifactID != nil {
 		extractOpts.FetchArtifactID = *fetchResult.ArtifactID
 	}

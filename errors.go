@@ -114,6 +114,90 @@ func (e *CostAcknowledgementRequiredError) Error() string {
 	return fmt.Sprintf("CostAcknowledgementRequiredError(%d): %s", e.StatusCode, e.Message)
 }
 
+// RobotsDisallowedError is returned for HTTP 409 "ROBOTS_DISALLOWED": the
+// site's robots.txt stops the request and nothing was fetched. Reason is
+// "disallowed" (a rule forbids the page; Rule names it) or "unreadable"
+// (the file could not be read: a 5xx, a timeout or a dropped connection).
+// The SDK does not retry it and never acknowledges a stop on its own: an
+// acknowledgement is your confirmation that you have the right to access
+// the host's content despite its robots.txt, and that you accept
+// responsibility for doing so under the Terms (TermsVersion). To go past
+// it, send the same request again with Host in the method's
+// RobotsAcknowledgedHosts option. The acknowledgement counts for that
+// request only and is recorded by KLOAKD.
+type RobotsDisallowedError struct {
+	KloakdError
+	// Reason is "disallowed" or "unreadable".
+	Reason string
+	// Host is the host to name in RobotsAcknowledgedHosts.
+	Host string
+	// Rule is the robots.txt rule that stopped the page, e.g. "Disallow: /".
+	Rule string
+	// URL is the page that was stopped.
+	URL string
+	// RedirectedFrom is the requested URL when the stop was where it
+	// redirected to; "" otherwise.
+	RedirectedFrom string
+	// TermsVersion is the version of the Terms an acknowledgement is
+	// recorded under.
+	TermsVersion string
+	// AcknowledgeField is the request field that acknowledges the stop
+	// ("robots_acknowledged_hosts").
+	AcknowledgeField string
+}
+
+func (e *RobotsDisallowedError) Error() string {
+	return fmt.Sprintf("RobotsDisallowedError(%d): %s (host=%s, reason=%s)", e.StatusCode, e.Message, e.Host, e.Reason)
+}
+
+// RobotsCheckUnavailableError is returned for HTTP 503
+// "ROBOTS_CHECK_UNAVAILABLE": KLOAKD could not read the site's robots.txt
+// because of its own capacity, so nothing was fetched. It is not a stop and
+// there is nothing to acknowledge. The SDK retries it itself (on any
+// method) after RetryAfter seconds, up to Config.MaxRetries, as it does
+// billing_unavailable. errors.As with a *RobotsCheckUnavailableError also
+// matches a *RobotsExitsRefusedError.
+type RobotsCheckUnavailableError struct {
+	KloakdError
+	// Reason is the API's reason when it gave one ("exits_refused" is a
+	// *RobotsExitsRefusedError); "" for KLOAKD's own capacity.
+	Reason string
+	// Host is the site's host.
+	Host string
+	// RetryAfter is the Retry-After header, else detail.retry_after_s,
+	// else 30 (seconds).
+	RetryAfter int
+}
+
+func (e *RobotsCheckUnavailableError) Error() string {
+	return fmt.Sprintf("RobotsCheckUnavailableError(%d): %s (host=%s, retry_after=%ds)", e.StatusCode, e.Message, e.Host, e.RetryAfter)
+}
+
+// RobotsExitsRefusedError is returned for HTTP 503
+// "ROBOTS_CHECK_UNAVAILABLE" with reason "exits_refused": every one of
+// KLOAKD's network exits refused to open a connection to the site, so its
+// robots.txt could not be read and nothing was fetched. This is not the
+// site's answer and there is nothing to acknowledge; RobotsAcknowledgedHosts
+// does not help. The SDK does not retry it. errors.As with a
+// *RobotsCheckUnavailableError also matches it.
+type RobotsExitsRefusedError struct {
+	RobotsCheckUnavailableError
+}
+
+// As makes a RobotsExitsRefusedError also a *RobotsCheckUnavailableError
+// for errors.As.
+func (e *RobotsExitsRefusedError) As(target interface{}) bool {
+	if rc, ok := target.(**RobotsCheckUnavailableError); ok {
+		*rc = &e.RobotsCheckUnavailableError
+		return true
+	}
+	return false
+}
+
+func (e *RobotsExitsRefusedError) Error() string {
+	return fmt.Sprintf("RobotsExitsRefusedError(%d): %s (host=%s)", e.StatusCode, e.Message, e.Host)
+}
+
 // RateLimitError is returned for HTTP 429 "rate_limited". For the tier's
 // request rate, RetryAfter (seconds) and ResetAt say when to retry; the SDK
 // retries it itself up to Config.MaxRetries. QuotaExhausted is true for the
@@ -350,6 +434,30 @@ func raiseForStatus(statusCode int, body map[string]interface{}, headers http.He
 		}
 	case statusCode == 409 && code == "cost_acknowledgement_required":
 		return &CostAcknowledgementRequiredError{KloakdError: base}
+	case statusCode == 409 && code == RobotsDisallowedCode:
+		return &RobotsDisallowedError{
+			KloakdError:      base,
+			Reason:           str("reason"),
+			Host:             str("host"),
+			Rule:             str("rule"),
+			URL:              str("url"),
+			RedirectedFrom:   str("redirected_from"),
+			TermsVersion:     str("terms_version"),
+			AcknowledgeField: str("acknowledge_field"),
+		}
+	case statusCode == 503 && code == RobotsCheckUnavailableCode:
+		after := retryAfter(0)
+		if after == 0 {
+			after = 30
+			if n := num("retry_after_s"); n > 0 {
+				after = int(n)
+			}
+		}
+		unavailable := RobotsCheckUnavailableError{KloakdError: base, Reason: str("reason"), Host: str("host"), RetryAfter: after}
+		if unavailable.Reason == RobotsReasonExitsRefused {
+			return &RobotsExitsRefusedError{RobotsCheckUnavailableError: unavailable}
+		}
+		return &unavailable
 	case statusCode == 429 && code == "gb_exhausted":
 		return &QuotaExceededError{
 			KloakdError:        base,
